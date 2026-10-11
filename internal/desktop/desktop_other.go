@@ -63,7 +63,34 @@ func (d *Desktop) WindowAction(string) error     { return errors.New("pencere yo
 func (d *Desktop) IsFullscreen() bool            { return false }
 func (d *Desktop) RemovableDrives() []core.Drive { return nil }
 func (d *Desktop) OpenFolder(path string) error {
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return err
+	}
 	return exec.Command("xdg-open", path).Start()
+}
+
+// RevealFile dosyanın klasörünü açar.
+func (d *Desktop) RevealFile(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		return err
+	}
+	return exec.Command("xdg-open", filepath.Dir(path)).Start()
+}
+
+// ReportsDir Excel raporlarının klasörüdür.
+func (d *Desktop) ReportsDir() string { return filepath.Join(DataDir(), "raporlar") }
+
+// GoogleDriveDirs ev klasöründeki Google Drive klasörlerini verir (geliştirme için).
+func (d *Desktop) GoogleDriveDirs() []string {
+	home, _ := os.UserHomeDir()
+	var out []string
+	for _, n := range []string{"Google Drive", "My Drive", "Drive'ım"} {
+		p := filepath.Join(home, n)
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // RunBrowser adresi yazar ve program kapatılana kadar bekler.
@@ -79,3 +106,9 @@ func (d *Desktop) RunBrowser(url, dataDir string, lastPing func() time.Time, qui
 	case <-sig:
 	}
 }
+
+// Seal Windows dışında (geliştirme) veriyi olduğu gibi bırakır.
+func Seal(b []byte) ([]byte, error) { return append([]byte(nil), b...), nil }
+
+// Unseal Seal'in tersidir.
+func Unseal(b []byte) ([]byte, error) { return append([]byte(nil), b...), nil }

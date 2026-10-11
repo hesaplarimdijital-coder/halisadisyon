@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -484,6 +485,95 @@ func (d *Desktop) OpenFolder(path string) error {
 	return exec.Command("explorer.exe", path).Start()
 }
 
+// RevealFile dosyayı Windows Gezgini'nde seçili olarak gösterir.
+func (d *Desktop) RevealFile(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		return err
+	}
+	cmd := exec.Command("explorer.exe")
+	// Gezgin /select ardından gelen yolu tırnaklı ister; Go'nun kendi tırnaklaması uymaz.
+	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: `explorer.exe /select,"` + path + `"`}
+	return cmd.Start()
+}
+
+// ReportsDir Excel raporlarının klasörüdür: Belgeler\Halis Adisyon Raporları
+func (d *Desktop) ReportsDir() string {
+	return filepath.Join(filepath.Dir(BackupDir()), "Halis Adisyon Raporları")
+}
+
+const (
+	driveRemote = 4
+	driveCDROM  = 5
+)
+
+// Google Drive (masaüstü) klasör adları: Türkçe, İngilizce.
+var driveFolderNames = []string{"Drive'ım", "Drive’ım", "My Drive", "Drive'im"}
+
+func skipDriveRootEntry(n string) bool {
+	l := strings.ToLower(n)
+	return strings.HasPrefix(l, ".") || strings.HasPrefix(l, "$") || l == "system volume information" ||
+		strings.Contains(l, "shared drive") || strings.Contains(l, "ortak drive") || l == "computers" || l == "bilgisayarlar"
+}
+
+// GoogleDriveDirs bilgisayardaki Google Drive klasörlerini bulur: masaüstü için
+// Google Drive'ın sanal sürücüsü (ör. G:\Drive'ım) ya da yansıtılan klasör.
+func (d *Desktop) GoogleDriveDirs() []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(p string) {
+		key := strings.ToLower(filepath.Clean(p))
+		if seen[key] {
+			return
+		}
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+			seen[key] = true
+			out = append(out, p)
+		}
+	}
+	mask, err := windows.GetLogicalDrives()
+	if err == nil {
+		for i := 2; i < 26; i++ { // C: ve sonrası
+			if mask&(1<<uint(i)) == 0 {
+				continue
+			}
+			root := string(rune('A'+i)) + `:\`
+			switch windows.GetDriveType(utf16(root)) {
+			case driveRemovable, driveRemote, driveCDROM:
+				continue
+			}
+			label := make([]uint16, 261)
+			_ = windows.GetVolumeInformation(utf16(root), &label[0], uint32(len(label)), nil, nil, nil, nil, 0)
+			if !strings.EqualFold(windows.UTF16ToString(label), "Google Drive") {
+				continue
+			}
+			found := false
+			for _, n := range driveFolderNames {
+				if _, err := os.Stat(filepath.Join(root, n)); err == nil {
+					add(filepath.Join(root, n))
+					found = true
+				}
+			}
+			if !found {
+				// Başka dilde: kökteki ilk kişisel klasör.
+				if entries, err := os.ReadDir(root); err == nil {
+					for _, e := range entries {
+						if e.IsDir() && !skipDriveRootEntry(e.Name()) {
+							add(filepath.Join(root, e.Name()))
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		for _, n := range append(append([]string{}, driveFolderNames...), "Google Drive") {
+			add(filepath.Join(home, n))
+		}
+	}
+	return out
+}
+
 // RemovableDrives takılı USB bellekleri listeler.
 func (d *Desktop) RemovableDrives() []core.Drive {
 	var out []core.Drive
@@ -578,4 +668,37 @@ func (d *Desktop) RunBrowser(url, dataDir string, lastPing func() time.Time, qui
 			}
 		}
 	}
+}
+
+// dpapiEntropy anahtarı yalnız bu programa bağlar (aynı kullanıcının başka bir
+// programı aynı veriyi kolayca çözemesin).
+var dpapiEntropy = []byte("HalisAdisyon/gizli/1")
+
+func blob(b []byte) *windows.DataBlob {
+	d := &windows.DataBlob{Size: uint32(len(b))}
+	if len(b) > 0 {
+		d.Data = &b[0]
+	}
+	return d
+}
+
+// Seal veriyi bu bilgisayardaki Windows kullanıcısına bağlı olarak şifreler (DPAPI).
+// Yedek başka bir bilgisayara taşınırsa çözülemez.
+func Seal(b []byte) ([]byte, error) {
+	var out windows.DataBlob
+	if err := windows.CryptProtectData(blob(b), utf16(AppTitle), blob(dpapiEntropy), 0, nil, windows.CRYPTPROTECT_UI_FORBIDDEN, &out); err != nil {
+		return nil, err
+	}
+	defer windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
+	return append([]byte(nil), unsafe.Slice(out.Data, out.Size)...), nil
+}
+
+// Unseal Seal ile şifrelenen veriyi çözer.
+func Unseal(b []byte) ([]byte, error) {
+	var out windows.DataBlob
+	if err := windows.CryptUnprotectData(blob(b), nil, blob(dpapiEntropy), 0, nil, windows.CRYPTPROTECT_UI_FORBIDDEN, &out); err != nil {
+		return nil, err
+	}
+	defer windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
+	return append([]byte(nil), unsafe.Slice(out.Data, out.Size)...), nil
 }

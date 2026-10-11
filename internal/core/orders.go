@@ -2,6 +2,8 @@ package core
 
 import (
 	"database/sql"
+
+	"halisadisyon/internal/money"
 )
 
 const maxUndo = 30
@@ -92,8 +94,12 @@ func (s *Service) AddItem(table int, productID, waiterID int64) (*State, int64, 
 			if no, err = nextNo(tx); err != nil {
 				return err
 			}
+			day, err := openBusinessDay(tx, now)
+			if err != nil {
+				return err
+			}
 			if _, err := tx.Exec(`INSERT INTO adisyons(no,business_date,table_no,waiter_id,waiter_name,status,opened_at)
-				VALUES(?,?,?,?,?,'open',?)`, no, businessDate(now), table, w.ID, w.Name, stamp(now)); err != nil {
+				VALUES(?,?,?,?,?,'open',?)`, no, day, table, w.ID, w.Name, stamp(now)); err != nil {
 				return err
 			}
 			audit(tx, now, "adisyon_acildi", no, map[string]any{"masa": table, "garson": w.Name})
@@ -367,6 +373,11 @@ func (s *Service) Cancel(no int64, reason, pin string) (*State, error) {
 		if a.Status == StatusCancelled {
 			return uerr("invalid", "Adisyon %d zaten iptal edilmiş.", no)
 		}
+		if closed, _, err := dayClosed(tx, a.BusinessDate); err != nil {
+			return err
+		} else if closed {
+			return uerr("closed", "Adisyon %d'in günü kapatılmış; değiştirilemez.", no)
+		}
 		now := s.now()
 		if _, err := tx.Exec(`UPDATE adisyons SET status='cancelled', closed_at=?, cancel_reason=? WHERE no=?`,
 			stamp(now), reason, no); err != nil {
@@ -382,35 +393,25 @@ func (s *Service) Cancel(no int64, reason, pin string) (*State, error) {
 	return s.stateLocked()
 }
 
-// Pay hesabı kapatır. withPrint doğruysa önce adisyon basılır; baskı olmazsa masa açık kalır.
-func (s *Service) Pay(no int64, withPrint bool) (*PayOutcome, *State, error) {
-	// Kapanış boyunca bu adisyona ürün eklenemez/değiştirilemez: basılan ile
-	// kapanan tutar aynı olsun.
-	s.mu.Lock()
-	if s.inPrint[no] {
-		s.mu.Unlock()
-		return nil, nil, errBusy(no)
-	}
-	s.inPrint[no] = true
-	s.mu.Unlock()
-	defer func() {
-		s.mu.Lock()
-		delete(s.inPrint, no)
-		s.mu.Unlock()
-	}()
-	var po *PrintOutcome
-	if withPrint {
-		out, st, err := s.print(no)
-		if err != nil {
-			return nil, nil, err
-		}
-		if !out.OK {
-			return &PayOutcome{Paid: false, Print: out}, st, nil
-		}
-		po = out
+// Pay hesabı ödeme şekliyle (nakit, kart, havale) kapatır. Ödeme şekli yalnız
+// programda adisyona kaydedilir; adisyon fişi ödemeden önce basıldığı için fişte
+// yer almaz. Hesap kapatılırken baskı yapılmaz (önce “Adisyonu Bas”).
+func (s *Service) Pay(no int64, method string) (*PayOutcome, *State, error) {
+	return s.PayChecked(no, method, -1)
+}
+
+// PayChecked hesabı kapatır; expected ≥ 0 ise ekranda gösterilen toplam
+// kayıttakiyle aynı olmalıdır (bu arada ürün eklendiyse kapatılmaz).
+func (s *Service) PayChecked(no int64, method string, expected int64) (*PayOutcome, *State, error) {
+	if !validPayment(method) {
+		return nil, nil, uerr("invalid", "Ödeme şeklini seçin: Nakit, Kredi Kartı ya da Havale.")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Fiş basılırken kapatılmaz: basılan ile kapanan tutar aynı olsun.
+	if s.inPrint[no] {
+		return nil, nil, errBusy(no)
+	}
 	var total int64
 	err := s.withTx(func(tx *sql.Tx) error {
 		a, err := loadActiveOrFail(tx, no)
@@ -420,15 +421,16 @@ func (s *Service) Pay(no int64, withPrint bool) (*PayOutcome, *State, error) {
 		if len(a.Lines) == 0 {
 			return uerr("invalid", "Adisyonda ürün yok. Masayı boşaltmak için “Masayı boşalt”ı kullanın.")
 		}
-		if po != nil && a.Changed {
-			return uerr("changed", "Adisyon basılırken değişti; hesap kapatılmadı. Tekrar basıp öyle kapatın.")
+		if expected >= 0 && expected != a.Total {
+			return uerr("changed", "Adisyon bu arada değişti; yeni toplam %s. Kontrol edip yeniden kapatın.", money.TL(a.Total))
 		}
 		total = a.Total
 		now := s.now()
-		if _, err := tx.Exec(`UPDATE adisyons SET status='paid', closed_at=? WHERE no=?`, stamp(now), no); err != nil {
+		if _, err := tx.Exec(`UPDATE adisyons SET status='paid', closed_at=?, payment_method=? WHERE no=?`, stamp(now), method, no); err != nil {
 			return err
 		}
-		audit(tx, now, "odendi", no, map[string]any{"tutar": a.Total, "basildi": a.PrintCount > 0 || po != nil, "masa": a.Table})
+		audit(tx, now, "odendi", no, map[string]any{"tutar": a.Total, "basildi": a.PrintCount > 0, "degisti": a.PrintCount > 0 && a.Changed,
+			"masa": a.Table, "odeme": method})
 		return nil
 	})
 	if err != nil {
@@ -436,7 +438,7 @@ func (s *Service) Pay(no int64, withPrint bool) (*PayOutcome, *State, error) {
 	}
 	delete(s.undo, no)
 	st, err := s.stateLocked()
-	return &PayOutcome{Paid: true, Total: total, Print: po}, st, err
+	return &PayOutcome{Paid: true, No: no, Total: total, Method: method, MethodLabel: PaymentLabel(method)}, st, err
 }
 
 func errBusy(no int64) error {

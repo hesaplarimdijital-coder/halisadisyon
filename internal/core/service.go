@@ -29,7 +29,13 @@ type Desktop interface {
 	WindowAction(action string) error
 	IsFullscreen() bool
 	OpenFolder(path string) error
+	// RevealFile dosyayı Windows Gezgini'nde seçili gösterir.
+	RevealFile(path string) error
 	RemovableDrives() []Drive
+	// GoogleDriveDirs bilgisayardaki Google Drive klasörlerini verir ("G:\Drive'ım").
+	GoogleDriveDirs() []string
+	// ReportsDir Excel raporlarının yazılacağı klasördür (Belgeler\Halis Adisyon Raporları).
+	ReportsDir() string
 }
 
 // Drive yedek için seçilebilecek çıkarılabilir sürücüdür (USB bellek).
@@ -41,7 +47,30 @@ type Drive struct {
 // Backuper otomatik yedeği yöneten bileşendir.
 type Backuper interface {
 	Run(reason string) error
-	Status() (dir, lastAt, lastErr, secondErr string)
+	Status() BackupStatus
+	// List geri yüklenebilecek yedekleri yeniden eskiye verir.
+	List() []BackupFile
+	// PrepareRestore yedeği doğrulayıp program yeniden açılınca yerine konmak üzere
+	// hazırlar. maxNo şu ana kadar verilmiş en büyük adisyon numarasıdır.
+	PrepareRestore(path string, maxNo int64) error
+	// SaveCopy şu anki verinin adlı, ayrı saklanan bir yedeğini alır.
+	SaveCopy(label string) (string, error)
+}
+
+// BackupStatus yedek durumudur.
+type BackupStatus struct {
+	Dir, LastAt, LastError string
+	SecondError, SecondAt  string // USB bellek / ikinci disk
+	DriveError, DriveAt    string // Google Drive klasörü
+}
+
+// BackupFile geri yüklenebilecek bir yedektir.
+type BackupFile struct {
+	Path  string `json:"path"`
+	Name  string `json:"name"`
+	Where string `json:"where"`
+	At    string `json:"at"`
+	Size  int64  `json:"size"`
 }
 
 // Options Service'in dış bağımlılıklarıdır.
@@ -54,6 +83,12 @@ type Options struct {
 	Send     func(cfg printing.Config, data []byte, doc string) printing.Result
 	Printers func() ([]printing.PrinterInfo, string)
 	Log      *log.Logger
+	// Restart programı kapatıp yeniden açar (yedekten geri yüklemeden sonra).
+	Restart func() error
+	// Seal ve Unseal gizli bilgiyi (WhatsApp erişim anahtarı) bu bilgisayardaki
+	// Windows kullanıcısına bağlı olarak şifreler (DPAPI). Boşsa düz saklanır.
+	Seal   func([]byte) ([]byte, error)
+	Unseal func([]byte) ([]byte, error)
 }
 
 // Service tüm işlemleri sırayla (kilit altında) yürütür.
@@ -72,6 +107,18 @@ type Service struct {
 	inPrint map[int64]bool // şu an basılan ya da kapanan adisyonlar
 	seq     uint64
 	boot    int64
+
+	outboxKick  chan struct{}
+	notice      string // kısa süre gösterilecek bilgi (ör. yedekten geri yüklendi)
+	noticeUntil time.Time
+
+	// Gün sonu alınmamış günler her ekran yenilemesinde değil, açık gün ya da
+	// kapatılan günler değişince yeniden hesaplanır.
+	daysVer      int
+	tokenLost    bool // şifreli erişim anahtarı bu bilgisayarda açılamadı
+	unclosedFor  string
+	unclosedVer  int
+	unclosedList []string
 
 	unlockedUntil   time.Time
 	pinFails        int // art arda yanlış şifre (kalıcı)
@@ -95,6 +142,9 @@ func New(db *sql.DB, opt Options) (*Service, error) {
 	}
 	if opt.Desktop == nil {
 		opt.Desktop = nullDesktop{}
+	}
+	if opt.Restart == nil {
+		opt.Restart = func() error { return errors.New("yeniden başlatma desteklenmiyor") }
 	}
 	s := &Service{db: db, opt: opt, undo: map[int64][][]Line{}, inPrint: map[int64]bool{}, boot: time.Now().UnixMilli()}
 	if err := s.init(); err != nil {
@@ -172,7 +222,7 @@ func (s *Service) init() error {
 				return err
 			}
 		}
-		if err := saveSettingsTx(tx, s.set); err != nil {
+		if err := s.saveSettingsTx(tx, s.set); err != nil {
 			return err
 		}
 		audit(tx, s.now(), "ilk_acilis", 0, nil)
@@ -189,8 +239,12 @@ func (s *Service) init() error {
 		if err := s.set.Printer.Normalize(); err != nil {
 			s.set.Printer = printing.DefaultConfig()
 		}
+		s.openSecrets()
 	}
 	s.loadPinGuard()
+	if err := s.adoptPastDays(); err != nil {
+		s.opt.Log.Printf("geçmiş günler aktarılamadı: %v", err)
+	}
 	var logo string
 	if err := s.db.QueryRow(`SELECT value FROM settings WHERE key='logo'`).Scan(&logo); err == nil && logo != "" {
 		if b, err := base64.StdEncoding.DecodeString(logo); err == nil {
@@ -203,6 +257,59 @@ func (s *Service) init() error {
 	return nil
 }
 
+// openSecrets şifreli saklanan erişim anahtarını açar. Başka bir bilgisayardan
+// (yedekten) gelmişse açılamaz: anahtar boşaltılır, ayarlarda yeniden istenir.
+func (s *Service) openSecrets() {
+	t := s.set.WhatsApp.Token
+	if !strings.HasPrefix(t, sealedPrefix) {
+		return
+	}
+	s.set.WhatsApp.Token = ""
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(t, sealedPrefix))
+	if err == nil && s.opt.Unseal != nil {
+		var plain []byte
+		if plain, err = s.opt.Unseal(raw); err == nil {
+			s.set.WhatsApp.Token = string(plain)
+			return
+		}
+	}
+	s.tokenLost = true
+	s.opt.Log.Printf("WhatsApp erişim anahtarı bu bilgisayarda açılamadı; yeniden girilmeli: %v", err)
+}
+
+// adoptPastDays 1.0.0'dan gelen veride gün sonu yoktu: ilk açılışta, açık masası
+// olmayan geçmiş günler kapatılmış sayılır (yoksa her eski gün "gün sonu
+// alınmadı" diye hatırlatılır ve tek tek kapatılması gerekirdi). Bir kez yapılır.
+func (s *Service) adoptPastDays() error {
+	var done string
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key='gun_sonu_gecisi'`).Scan(&done)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	now := s.now()
+	today := businessDate(now)
+	return s.withTx(func(tx *sql.Tx) error {
+		res, err := tx.Exec(`INSERT OR IGNORE INTO business_days(date, closed_at, summary)
+			SELECT DISTINCT business_date, ?, '{"gecis":true}' FROM adisyons
+			WHERE business_date < ? AND business_date NOT IN
+				(SELECT business_date FROM adisyons WHERE status IN ('open','printed'))`, stamp(now), today)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if _, err := tx.Exec(`INSERT INTO settings(key,value) VALUES('gun_sonu_gecisi',?)`, stamp(now)); err != nil {
+			return err
+		}
+		if n > 0 {
+			audit(tx, now, "gun_sonu_gecisi", 0, map[string]any{"gun": n, "bugun": today})
+		}
+		return nil
+	})
+}
+
 type execer interface {
 	Exec(query string, args ...any) (sql.Result, error)
 }
@@ -213,7 +320,18 @@ type querier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-func saveSettingsTx(q execer, set Settings) error {
+const sealedPrefix = "dpapi:"
+
+// saveSettingsTx ayarları yazar; WhatsApp erişim anahtarı (varsa) şifrelenerek
+// saklanır, böylece yedek dosyalarında düz metin olarak bulunmaz.
+func (s *Service) saveSettingsTx(q execer, set Settings) error {
+	if t := set.WhatsApp.Token; t != "" && s.opt.Seal != nil {
+		sealed, err := s.opt.Seal([]byte(t))
+		if err != nil {
+			return err
+		}
+		set.WhatsApp.Token = sealedPrefix + base64.StdEncoding.EncodeToString(sealed)
+	}
 	b, err := json.Marshal(set)
 	if err != nil {
 		return err
@@ -313,12 +431,14 @@ func loadWaiters(q querier, activeOnly bool) ([]Waiter, error) {
 }
 
 const adisyonCols = `no,business_date,table_no,COALESCE(waiter_id,0),waiter_name,status,opened_at,
-	COALESCE(printed_at,''),COALESCE(closed_at,''),print_count,changed,print_failed,COALESCE(cancel_reason,''),total,vat_total`
+	COALESCE(printed_at,''),COALESCE(closed_at,''),print_count,changed,print_failed,COALESCE(cancel_reason,''),total,vat_total,
+	COALESCE(payment_method,''),COALESCE(merged_into,0)`
 
 func scanAdisyon(sc interface{ Scan(...any) error }) (*Adisyon, error) {
 	var a Adisyon
 	err := sc.Scan(&a.No, &a.BusinessDate, &a.Table, &a.WaiterID, &a.WaiterName, &a.Status, &a.OpenedAt,
-		&a.PrintedAt, &a.ClosedAt, &a.PrintCount, &a.Changed, &a.PrintFailed, &a.CancelReason, &a.Total, &a.VATTotal)
+		&a.PrintedAt, &a.ClosedAt, &a.PrintCount, &a.Changed, &a.PrintFailed, &a.CancelReason, &a.Total, &a.VATTotal,
+		&a.PaymentMethod, &a.MergedInto)
 	if err != nil {
 		return nil, err
 	}
@@ -398,9 +518,12 @@ func activeForTable(q querier, table int) (*Adisyon, error) {
 	return loadAdisyon(q, no)
 }
 
+// nextNo sıradaki adisyon numarasıdır. Yedekten geri yüklemede kâğıtta verilmiş
+// numaralar tekrar kullanılmasın diye "no_floor" ayarının altına inilmez.
 func nextNo(q querier) (int64, error) {
 	var n int64
-	err := q.QueryRow(`SELECT COALESCE(MAX(no),0)+1 FROM adisyons`).Scan(&n)
+	err := q.QueryRow(`SELECT MAX(COALESCE((SELECT MAX(no) FROM adisyons),0),
+		COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key='no_floor'),0))+1`).Scan(&n)
 	return n, err
 }
 
@@ -504,10 +627,46 @@ func (s *Service) stateLocked() (*State, error) {
 		st.UnlockLeftMs = s.unlockedUntil.Sub(now).Milliseconds()
 	}
 	if s.opt.Backup != nil {
-		dir, last, lerr, serr := s.opt.Backup.Status()
-		st.Backup = BackupInfo{Dir: dir, SecondDir: s.set.SecondBackupDir, LastAt: last, LastError: lerr, SecondError: serr}
+		b := s.opt.Backup.Status()
+		st.Backup = BackupInfo{Dir: b.Dir, SecondDir: s.set.SecondBackupDir, LastAt: b.LastAt, LastError: b.LastError,
+			SecondError: b.SecondError, SecondAt: b.SecondAt, DriveDir: s.set.DriveBackupDir, DriveError: b.DriveError, DriveAt: b.DriveAt}
 	} else {
 		st.Backup.SecondDir = s.set.SecondBackupDir
+		st.Backup.DriveDir = s.set.DriveBackupDir
+	}
+	st.PaymentMethods = PaymentMethods
+	st.ClockDate = businessDate(now)
+	if day, err := openBusinessDay(s.db, now); err == nil {
+		st.BusinessDate = day
+		if s.unclosedFor != day || s.unclosedVer != s.daysVer || s.unclosedList == nil {
+			if list, err := unclosedDays(s.db, day); err == nil {
+				s.unclosedFor, s.unclosedVer, s.unclosedList = day, s.daysVer, list
+			}
+		}
+		st.UnclosedDays = append([]string(nil), s.unclosedList...)
+	}
+	if st.UnclosedDays == nil {
+		st.UnclosedDays = []string{}
+	}
+	if s.notice != "" && now.Before(s.noticeUntil) {
+		st.Notice = s.notice
+	}
+	st.FeaturedProductID = s.set.FeaturedProductID
+	wa := s.set.WhatsApp
+	st.WhatsApp = WhatsAppView{Enabled: wa.Enabled, PhoneNumberID: wa.PhoneNumberID, HasToken: wa.Token != "",
+		Template: wa.Template, Lang: wa.Lang, APIVersion: wa.APIVersion, Recipients: wa.Recipients}
+	if n := len(wa.Token); n > 4 {
+		st.WhatsApp.TokenHint = "…" + wa.Token[n-4:]
+	}
+	st.WhatsApp.TokenLost = s.tokenLost && wa.Token == ""
+	if st.WhatsApp.Recipients == nil {
+		st.WhatsApp.Recipients = []string{}
+	}
+	st.Sheets = SheetsView{Enabled: s.set.Sheets.Enabled, URL: s.set.Sheets.URL}
+	if st.Unlocked {
+		st.Sheets.Secret = s.set.Sheets.Secret
+		st.WhatsApp.Status = s.outboxStatus(outboxWhatsApp)
+		st.Sheets.Status = s.outboxStatus(outboxSheets)
 	}
 	auto, sup := s.opt.Desktop.Autostart()
 	st.Program = ProgramInfo{
@@ -570,4 +729,7 @@ func (nullDesktop) SetAutostart(bool) error   { return errors.New("desteklenmiyo
 func (nullDesktop) WindowAction(string) error { return errors.New("desteklenmiyor") }
 func (nullDesktop) IsFullscreen() bool        { return false }
 func (nullDesktop) OpenFolder(string) error   { return errors.New("desteklenmiyor") }
+func (nullDesktop) RevealFile(string) error   { return errors.New("desteklenmiyor") }
 func (nullDesktop) RemovableDrives() []Drive  { return nil }
+func (nullDesktop) GoogleDriveDirs() []string { return nil }
+func (nullDesktop) ReportsDir() string        { return "" }

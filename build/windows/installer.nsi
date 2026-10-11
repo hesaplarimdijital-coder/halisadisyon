@@ -1,5 +1,5 @@
 ; Halis Adisyon · Türkçe kurulum sihirbazı (NSIS 3)
-; makensis -DSTAGE=<klasör> -DVERSION=1.0.0 -DOUTFILE=<çıktı.exe> installer.nsi
+; makensis -DSTAGE=<klasör> -DVERSION=2.0.0 -DOUTFILE=<çıktı.exe> installer.nsi
 ; Yönetici izni istemez: kullanıcının kendi klasörüne (%LOCALAPPDATA%\Programs) kurar.
 
 Unicode true
@@ -13,7 +13,7 @@ RequestExecutionLevel user
 !include "Sections.nsh"
 
 !ifndef VERSION
-  !define VERSION "1.0.0"
+  !define VERSION "2.0.0"
 !endif
 !define APPNAME "Halis Adisyon"
 !define APPEXE "HalisAdisyon.exe"
@@ -150,5 +150,5 @@ Section "Uninstall"
   DeleteRegValue HKCU "${RUNKEY}" "HalisAdisyon"
   DeleteRegKey HKCU "${UNINSTKEY}"
   DeleteRegKey HKCU "Software\HalisAdisyon"
-  MessageBox MB_ICONINFORMATION "Halis Adisyon kaldırıldı.$\r$\n$\r$\nAdisyon kayıtları ve yedekler silinmedi:$\r$\n$LOCALAPPDATA\HalisAdisyon$\r$\n$DOCUMENTS\Halis Adisyon Yedekleri" /SD IDOK
+  MessageBox MB_ICONINFORMATION "Halis Adisyon kaldırıldı.$\r$\n$\r$\nAdisyon kayıtları, yedekler ve Excel raporları silinmedi:$\r$\n$LOCALAPPDATA\HalisAdisyon$\r$\n$DOCUMENTS\Halis Adisyon Yedekleri$\r$\n$DOCUMENTS\Halis Adisyon Raporları" /SD IDOK
 SectionEnd

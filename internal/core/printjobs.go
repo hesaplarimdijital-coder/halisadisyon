@@ -98,7 +98,8 @@ func (s *Service) Print(no int64) (*PrintOutcome, *State, error) {
 }
 
 // print basma işini yapar; çağıran inPrint[no] işaretini tutar (bu sürede
-// adisyona ürün eklenemez, hesap kapatılamaz).
+// adisyona ürün eklenemez, hesap kapatılamaz). Ödeme şekli fişe yazılmaz:
+// adisyon fişi ödemeden önce basılır, ödeme şekli yalnız programda saklanır.
 func (s *Service) print(no int64) (*PrintOutcome, *State, error) {
 	s.mu.Lock()
 	a, err := loadActiveOrFail(s.db, no)

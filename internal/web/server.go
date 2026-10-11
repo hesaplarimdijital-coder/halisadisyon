@@ -311,13 +311,28 @@ func (s *Server) call(name string, body []byte) (any, *core.State, error) {
 		return out, st, err
 	case "pay":
 		req, err := decode[struct {
-			No    int64 `json:"no"`
-			Print bool  `json:"print"`
+			No     int64  `json:"no"`
+			Method string `json:"method"`
+			Total  *int64 `json:"total"` // ekranda gösterilen toplam
 		}](body)
 		if err != nil {
 			return nil, nil, err
 		}
-		out, st, err := svc.Pay(req.No, req.Print)
+		expected := int64(-1)
+		if req.Total != nil {
+			expected = *req.Total
+		}
+		out, st, err := svc.PayChecked(req.No, req.Method, expected)
+		return out, st, err
+	case "moveTable":
+		req, err := decode[struct {
+			No     int64 `json:"no"`
+			Target int   `json:"target"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		out, st, err := svc.MoveTable(req.No, req.Target)
 		return out, st, err
 	case "closeEmpty":
 		req, err := decode[struct {
@@ -491,6 +506,9 @@ func (s *Server) call(name string, body []byte) (any, *core.State, error) {
 			return nil, nil, err
 		}
 		return nil, nil, svc.OpenFolder(req.Which)
+	case "driveDirs":
+		d, err := svc.DriveDirs()
+		return map[string]any{"dirs": d}, nil, err
 	case "drives":
 		d, err := svc.Drives()
 		return map[string]any{"drives": d}, nil, err
@@ -517,6 +535,131 @@ func (s *Server) call(name string, body []byte) (any, *core.State, error) {
 			return nil, nil, nil
 		}
 		return nil, nil, err
+	case "samplePreview":
+		req, err := decode[struct {
+			Business *core.Business `json:"business"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		img, err := svc.SamplePreview(req.Business)
+		return map[string]string{"image": img}, nil, err
+	case "samplePrint":
+		out, err := svc.SamplePrint()
+		return out, nil, err
+
+	// ---- gün sonu ----
+	case "daySummary":
+		req, err := decode[struct {
+			Date string `json:"date"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		ds, err := svc.DaySummary(req.Date)
+		return ds, nil, err
+	case "closeDay":
+		req, err := decode[struct {
+			Date string `json:"date"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		ds, st, err := svc.CloseDay(req.Date)
+		return ds, st, err
+	case "dayPreview":
+		req, err := decode[struct {
+			Date string `json:"date"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		img, err := svc.DayReportPreview(req.Date)
+		return map[string]string{"image": img}, nil, err
+	case "printDay":
+		req, err := decode[struct {
+			Date string `json:"date"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		out, err := svc.PrintDayReport(req.Date)
+		return out, nil, err
+	case "detail":
+		req, err := decode[noReq](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		d, err := svc.Detail(req.No)
+		return d, nil, err
+	case "changePayment":
+		req, err := decode[struct {
+			No     int64  `json:"no"`
+			Method string `json:"method"`
+			Pin    string `json:"pin"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		st, err := svc.ChangePayment(req.No, req.Method, req.Pin)
+		return nil, st, err
+	case "bulkPrice":
+		req, err := decode[core.BulkPriceInput](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		res, st, err := svc.BulkPrice(req)
+		return res, st, err
+	case "auditLog":
+		req, err := decode[core.AuditQuery](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		page, err := svc.AuditLog(req)
+		return page, nil, err
+	case "backups":
+		list, err := svc.Backups()
+		return map[string]any{"backups": list}, nil, err
+	case "restore":
+		req, err := decode[struct {
+			Path string `json:"path"`
+			Pin  string `json:"pin"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, svc.Restore(req.Path, req.Pin)
+
+	// ---- istatistik ----
+	case "stats":
+		req, err := decode[core.StatsQuery](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		st, err := svc.Stats(req)
+		return st, nil, err
+	case "exportExcel":
+		req, err := decode[core.StatsQuery](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		path, err := svc.ExportExcel(req)
+		return map[string]string{"path": path}, nil, err
+
+	// ---- gönderimler ----
+	case "retryOutbox":
+		st, err := svc.RetryOutbox()
+		return nil, st, err
+	case "testRemote":
+		req, err := decode[struct {
+			Kind string `json:"kind"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		msg, err := svc.TestRemote(req.Kind)
+		return map[string]string{"message": msg}, nil, err
+
 	case "finishSetup":
 		req, err := decode[core.SetupInput](body)
 		if err != nil {

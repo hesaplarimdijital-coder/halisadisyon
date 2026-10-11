@@ -265,19 +265,31 @@ func TestPrintCopyChangedAndFailure(t *testing.T) {
 	}
 	// Yazıcı hatası: adisyon kaybolmaz, basılamadı işaretlenir, masa açık kalır.
 	e.prn.fail = &printing.Result{Code: "offline", Title: "Adisyon basılamadı", Message: "Yazıcıya ulaşılamıyor."}
-	pay, _, err := e.svc.Pay(no, true)
-	if err != nil || pay.Paid || pay.Print == nil || pay.Print.OK {
-		t.Fatalf("baskı hatasında hesap kapanmamalı: %+v %v", pay, err)
+	out, _, err = e.svc.Print(no)
+	if err != nil || out.OK {
+		t.Fatalf("baskı hatası bildirilmedi: %+v %v", out, err)
 	}
 	if a := e.adisyon(no); a.Status != StatusPrinted || !a.PrintFailed {
 		t.Fatalf("basılamadı işareti yok: %+v", a)
 	}
 	e.prn.fail = nil
-	pay, _, err = e.svc.Pay(no, true)
-	if err != nil || !pay.Paid {
+	// Ödeme şekli seçilmeden hesap kapanmaz.
+	if _, _, err := e.svc.Pay(no, ""); code(err) != "invalid" {
+		t.Fatalf("ödeme şekilsiz kapandı: %v", err)
+	}
+	if _, _, err := e.svc.Pay(no, "cek"); code(err) != "invalid" {
+		t.Fatalf("bilinmeyen ödeme şekli kabul edildi: %v", err)
+	}
+	jobs := len(e.prn.jobs)
+	pay, _, err := e.svc.Pay(no, PayCard)
+	if err != nil || !pay.Paid || pay.Method != PayCard || pay.MethodLabel != "Kredi Kartı" {
 		t.Fatalf("hesap kapanmadı: %+v %v", pay, err)
 	}
-	if a := e.adisyon(no); a.Status != StatusPaid || a.ClosedAt == "" || a.PrintFailed {
+	// Hesap kapatılırken fiş basılmaz (adisyon fişi ödemeden önce basılır).
+	if len(e.prn.jobs) != jobs {
+		t.Fatal("hesap kapatılırken baskı yapıldı")
+	}
+	if a := e.adisyon(no); a.Status != StatusPaid || a.ClosedAt == "" || a.PaymentMethod != PayCard {
 		t.Fatalf("ödendi durumu yanlış: %+v", a)
 	}
 	if len(e.state().Open) != 0 {
@@ -417,7 +429,7 @@ func TestPrintTwiceAtOnceIsRefused(t *testing.T) {
 	if _, _, err := e.svc.Print(no); code(err) != "busy" {
 		t.Fatalf("ikinci baskı reddedilmedi: %v", err)
 	}
-	if _, _, err := e.svc.Pay(no, false); code(err) != "busy" {
+	if _, _, err := e.svc.Pay(no, PayCash); code(err) != "busy" {
 		t.Fatalf("baskı sürerken hesap kapandı: %v", err)
 	}
 	// Baskı sürerken başka masada sipariş alınabilmeli.
@@ -741,18 +753,18 @@ func TestPrintedQuantitiesNeedPinToReduce(t *testing.T) {
 	}
 }
 
-// Basılırken ya da hesap kapanırken o adisyona ürün eklenemez (basılan ile kapanan
+// Basılırken o adisyona ürün eklenemez ve hesap kapatılamaz (basılan ile kapanan
 // tutar farklı olmasın); başka masalar çalışmaya devam eder.
-func TestNoChangesWhilePrintingOrPaying(t *testing.T) {
+func TestNoChangesWhilePrinting(t *testing.T) {
 	e := newEnv(t)
 	e.setup()
 	no := e.add(8, "Şiş")
 	e.prn.mu.Lock()
 	e.prn.block = make(chan struct{})
 	e.prn.mu.Unlock()
-	done := make(chan *PayOutcome)
+	done := make(chan *PrintOutcome)
 	go func() {
-		out, _, _ := e.svc.Pay(no, true)
+		out, _, _ := e.svc.Print(no)
 		done <- out
 	}()
 	deadline := time.Now().Add(2 * time.Second)
@@ -766,19 +778,31 @@ func TestNoChangesWhilePrintingOrPaying(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	if _, _, err := e.svc.AddItem(8, e.productID("Ayran"), 0); code(err) != "busy" {
-		t.Fatalf("kapanış sırasında ürün eklendi: %v", err)
+		t.Fatalf("baskı sırasında ürün eklendi: %v", err)
 	}
 	line := e.adisyon(no).Lines[0].ID
 	if _, err := e.svc.ChangeQty(no, line, 1, ""); code(err) != "busy" {
-		t.Fatalf("kapanış sırasında adet değişti: %v", err)
+		t.Fatalf("baskı sırasında adet değişti: %v", err)
+	}
+	if _, _, err := e.svc.Pay(no, PayCash); code(err) != "busy" {
+		t.Fatalf("baskı sırasında hesap kapandı: %v", err)
+	}
+	if _, _, err := e.svc.MoveTable(no, 12); code(err) != "busy" {
+		t.Fatalf("baskı sırasında masa taşındı: %v", err)
 	}
 	e.add(9, "Ayran") // başka masa çalışır
 	close(e.prn.block)
-	out := <-done
-	if out == nil || !out.Paid || out.Total != 30000 {
-		t.Fatalf("hesap yanlış kapandı: %+v", out)
+	if out := <-done; out == nil || !out.OK {
+		t.Fatalf("baskı: %+v", out)
 	}
-	if a := e.adisyon(no); a.Total != 30000 || a.Status != StatusPaid {
+	e.prn.mu.Lock()
+	e.prn.block = nil
+	e.prn.mu.Unlock()
+	pay, _, err := e.svc.Pay(no, PayCash)
+	if err != nil || !pay.Paid || pay.Total != 30000 {
+		t.Fatalf("hesap yanlış kapandı: %+v %v", pay, err)
+	}
+	if a := e.adisyon(no); a.Total != 30000 || a.Status != StatusPaid || a.PaymentMethod != PayCash {
 		t.Fatalf("kayıtlı tutar basılandan farklı: %+v", a)
 	}
 }

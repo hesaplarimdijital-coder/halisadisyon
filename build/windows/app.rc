@@ -1,0 +1,34 @@
+// Windows kaynakları: simge (pencere ve masaüstü), manifest (yüksek DPI, Windows 10/11), sürüm bilgisi.
+// x86_64-w64-mingw32-windres -c 65001 -i app.rc -O coff -o ../../cmd/halisadisyon/rsrc_windows_amd64.syso
+
+1 ICON "app.ico"
+1 24 "app.manifest"
+
+1 VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          0x40004L
+FILETYPE        0x1L
+FILESUBTYPE     0x0L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "041f04b0"
+    BEGIN
+      VALUE "CompanyName",      "Halis Erzurum Cağ Kebabı"
+      VALUE "FileDescription",  "Halis Adisyon"
+      VALUE "FileVersion",      "1.0.0"
+      VALUE "InternalName",     "HalisAdisyon"
+      VALUE "LegalCopyright",   "Halis Erzurum Cağ Kebabı"
+      VALUE "OriginalFilename", "HalisAdisyon.exe"
+      VALUE "ProductName",      "Halis Adisyon"
+      VALUE "ProductVersion",   "1.0.0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x41f, 1200
+  END
+END

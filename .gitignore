@@ -1,0 +1,7 @@
+# Derleme çıktıları
+/dist/
+/build/windows/app.gen.rc
+*.exe
+# Test ve araç çıktıları
+node_modules/
+*.log

@@ -1,0 +1,116 @@
+HALİS ADİSYON 1.0.0 (MVP 1) · KISA KULLANIM REHBERİ
+====================================================
+
+1. İLK AÇILIŞ
+-------------
+Program ilk açılışta 5 adımlı bir kurulum gösterir:
+  1) İşletme bilgileri (fişin üstünde ve altında görünür)
+  2) Masa sayısı ve garson adları
+  3) Yazıcı seçimi ve test fişi
+  4) 12 ürünün fiyatları (KDV dahil)
+  5) Yönetici şifresi (4 rakam)
+Bu bilgilerin hepsi sonradan Ayarlar ve Ürünler ekranlarından değiştirilebilir.
+
+
+2. YAZICI (KODDATA KPS80)
+-------------------------
+USB kabloyla:
+  - Koddata sürücüsü kurulu olmalı. Windows'ta Başlat > Ayarlar > Bluetooth ve
+    cihazlar > Yazıcılar ve tarayıcılar listesinde yazıcı görünmelidir.
+  - Programda Ayarlar > Yazıcı > "Windows yazıcısı" seçin, listeden yazıcıyı
+    seçin ve "Test fişi bas"a basın.
+
+Ethernet (ağ) kablosuyla:
+  - "Ağ yazıcısı" seçin, yazıcının IP adresini yazın (port genelde 9100).
+  - IP adresi: yazıcıyı kapatın, FEED tuşuna basılı tutarak açın; çıkan ayar
+    fişinde yazar.
+
+Test fişinde kontrol edin:
+  - Türkçe harfler (ÇĞİÖŞÜ çğıöşü) doğru çıkıyor mu?
+  - "Kenar kontrolü" çerçevesinin sol ve sağ kenarı görünüyor mu?
+    Görünmüyorsa Ayarlar > Yazıcı > Kâğıt bölümünden "80 mm dar baskı"yı seçin.
+  - QR kod telefon kamerasıyla okunuyor mu?
+  - Kâğıt kesiliyor mu? Kesilmiyorsa "Tam kes"i deneyin.
+
+
+3. GÜNLÜK KULLANIM (GARSON)
+---------------------------
+  - Masalar ekranında masaya tıklayın, garsonu seçin.
+  - Ürünlere tıklayın; her tıklama 1 adet ekler. Yanlışı – ile azaltın ya da
+    "Geri Al"a basın.
+  - "Adisyonu Bas": adisyon yazıcıdan çıkar. İkinci baskıda fişte "KOPYA" yazar.
+  - "Hesap Ödendi": masa boşalır.
+  - Yazıcı basamazsa ekranda ne yapılacağı yazar; adisyon kaybolmaz, masada
+    "Basılamadı" işareti görünür. Sorunu giderip "Tekrar Dene"ye basın.
+    Kâğıt fiş basılırken bittiyse yarım çıkan fişi atın; yeni rulo takınca
+    "Tekrar Dene" fişi baştan ve düzgün basar.
+  - Yazıcı takılsa da diğer masalarda sipariş almaya devam edebilirsiniz.
+  - "Kaydet" butonu yoktur; her tıklama anında kaydedilir. Elektrik kesilse
+    bile program yeniden açılınca masalar aynen gelir.
+
+
+4. YÖNETİCİ ŞİFRESİ
+-------------------
+Ürünler ve Ayarlar şifre ister. 5 dakika işlem olmazsa kilit kendiliğinden
+kapanır (süre Ayarlar'dan değişir).
+Adisyon iptali, basılmış bir adisyondan ürün düşmek ve basılmış adisyonun
+boşaltılması her seferinde ayrıca şifre ister (yönetici girişi açık olsa bile).
+Basıldıktan sonra eklenen ürünler şifresiz azaltılabilir. Adisyon basıldıktan
+sonra "Geri Al" yalnızca baskıdan sonraki adımları geri alır. İptal edilen adisyon silinmez; sebebiyle
+birlikte kayıtta kalır.
+5 kez yanlış şifre girilirse bir süre beklenir (1 dakika; tekrarlanırsa 5, 15,
+30, 60 dakika). Programı kapatıp açmak bu bekleme süresini kaldırmaz.
+
+Şifreyi unutursanız: programı kapatın, aşağıdaki veri klasörüne
+"sifre_sifirla.txt" adlı boş bir dosya koyun ve programı açın. Şifre 1234 olur;
+hemen Ayarlar > Yönetici şifresi bölümünden yenisini belirleyin.
+
+
+5. VERİLER VE YEDEKLER
+----------------------
+  - Veriler:  %LOCALAPPDATA%\HalisAdisyon\adisyon.db
+              (Gezgin'in adres çubuğuna %LOCALAPPDATA%\HalisAdisyon yazıp açabilirsiniz.)
+  - Yedekler: Belgeler\Halis Adisyon Yedekleri
+              Açılıştan birkaç saniye sonra, saatte bir ve program güç
+              simgesiyle kapatılırken alınır.
+              Son 24 saatlik (saatlik klasörü) ve son 60 günlük (gunluk
+              klasörü) yedek saklanır. Yedekler sıkıştırılmış .zip dosyasıdır;
+              içinde adisyon.db vardır.
+  - Ayarlar > Yedek bölümünden ikinci bir yer (USB bellek) seçilebilir.
+  - Yedek alınamazsa (disk dolu, USB çıkarılmış) Masalar ekranında sarı bir
+    uyarı çıkar. Siparişler yine kaydedilir.
+  - Programı kaldırmak verileri ve yedekleri silmez. Yeni sürüm kurmak da
+    verilere dokunmaz; güncelleme öncesi ayrıca yedek alınır.
+
+  Yedekten geri dönmek (yalnızca gerektiğinde, tercihen destek eşliğinde):
+    1) Programı kapatın.
+    2) %LOCALAPPDATA%\HalisAdisyon klasöründeki adisyon.db, adisyon.db-wal ve
+       adisyon.db-shm dosyalarını başka bir klasöre TAŞIYIN (silmeyin).
+       Bu üç dosya birlikte taşınmalıdır.
+    3) Geri dönülecek .zip yedeğini açın (sağ tık > Tümünü ayıkla); içindeki
+       adisyon.db dosyasını %LOCALAPPDATA%\HalisAdisyon klasörüne kopyalayın.
+    4) Programı açın.
+    Not: Yedekten sonra açılan adisyonlar geri dönülen kayıtta yoktur; numaraları
+    yeniden kullanılır. Bu yüzden en son yedeği seçin.
+
+
+6. SIK KARŞILAŞILAN DURUMLAR
+----------------------------
+  - Kurulumda "Windows bilgisayarınızı korudu" uyarısı: "Ek bilgi" > "Yine de
+    çalıştır". (Program imzasız olduğu için Windows bu uyarıyı gösterir.)
+  - "Akıllı Uygulama Denetimi bu uygulamayı engelledi" uyarısı (yalnızca bazı
+    yeni Windows 11 kurulumlarında): Windows Güvenliği > Uygulama ve tarayıcı
+    denetimi > Akıllı Uygulama Denetimi ayarları bölümünden kapatıp kurulumu
+    yeniden çalıştırın.
+  - Yazıcı listede yok: Koddata sürücüsünü kurun, sonra Ayarlar > Yazıcı'da
+    yenile simgesine basın. Ya da Ethernet ile "Ağ yazıcısı"nı kullanın.
+  - "Yazıcı Windows'ta çevrimdışı kullan durumunda": Windows yazıcı listesinde
+    yazıcıyı açıp "Yazıcıyı çevrimdışı kullan" işaretini kaldırın.
+  - Program açılmıyorsa: %LOCALAPPDATA%\HalisAdisyon\kayitlar\halis.log
+    dosyasını destek için gönderin. Program penceresi (WebView2) açılamazsa
+    program kendiliğinden Microsoft Edge içinde açılır; çalışma aynıdır.
+  - Tam ekrandan çıkmak için F11'e ya da üstteki tam ekran simgesine basın.
+    Programı kapatmak için sağ üstteki güç simgesini kullanın.
+
+Bu sürümde (MVP 1) olmayanlar: gün sonu ekranı, masa taşıma, istatistik,
+Excel, WhatsApp ve Google Sheets. Bunlar sonraki sürümlerde gelecek.

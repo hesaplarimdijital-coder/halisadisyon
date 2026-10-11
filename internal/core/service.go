@@ -1,0 +1,573 @@
+package core
+
+import (
+	"bytes"
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
+	"io"
+	"log"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"halisadisyon/internal/money"
+	"halisadisyon/internal/printing"
+)
+
+// Desktop pencere ve işletim sistemi işlerini yapar (Windows'ta gerçek, testte sahte).
+type Desktop interface {
+	Mode() string
+	Autostart() (enabled, supported bool)
+	SetAutostart(on bool) error
+	WindowAction(action string) error
+	IsFullscreen() bool
+	OpenFolder(path string) error
+	RemovableDrives() []Drive
+}
+
+// Drive yedek için seçilebilecek çıkarılabilir sürücüdür (USB bellek).
+type Drive struct {
+	Path  string `json:"path"`
+	Label string `json:"label"`
+}
+
+// Backuper otomatik yedeği yöneten bileşendir.
+type Backuper interface {
+	Run(reason string) error
+	Status() (dir, lastAt, lastErr, secondErr string)
+}
+
+// Options Service'in dış bağımlılıklarıdır.
+type Options struct {
+	Version  string
+	DataDir  string
+	Desktop  Desktop
+	Backup   Backuper
+	Now      func() time.Time
+	Send     func(cfg printing.Config, data []byte, doc string) printing.Result
+	Printers func() ([]printing.PrinterInfo, string)
+	Log      *log.Logger
+}
+
+// Service tüm işlemleri sırayla (kilit altında) yürütür.
+type Service struct {
+	mu      sync.Mutex
+	printMu sync.Mutex
+	db      *sql.DB
+	opt     Options
+	set     Settings
+
+	logo    []byte
+	logoImg image.Image
+	logoRev int64
+
+	undo    map[int64][][]Line
+	inPrint map[int64]bool // şu an basılan ya da kapanan adisyonlar
+	seq     uint64
+	boot    int64
+
+	unlockedUntil   time.Time
+	pinFails        int // art arda yanlış şifre (kalıcı)
+	pinBlocks       int // art arda kaç kez bekletildi (kalıcı)
+	pinBlockedUntil time.Time
+}
+
+// New servisi kurar; boş veritabanına başlangıç ürünlerini ve ayarlarını yazar.
+func New(db *sql.DB, opt Options) (*Service, error) {
+	if opt.Now == nil {
+		opt.Now = time.Now
+	}
+	if opt.Send == nil {
+		opt.Send = printing.Send
+	}
+	if opt.Printers == nil {
+		opt.Printers = printing.ListPrinters
+	}
+	if opt.Log == nil {
+		opt.Log = log.New(io.Discard, "", 0)
+	}
+	if opt.Desktop == nil {
+		opt.Desktop = nullDesktop{}
+	}
+	s := &Service{db: db, opt: opt, undo: map[int64][][]Line{}, inPrint: map[int64]bool{}, boot: time.Now().UnixMilli()}
+	if err := s.init(); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+func (s *Service) now() time.Time { return s.opt.Now() }
+
+func defaultSettings() Settings {
+	return Settings{
+		Business: Business{
+			Name:     "Halis Erzurum Cağ Kebabı",
+			Address1: "Merkez: Akdeniz Sanayi 5009 Sk.",
+			Address2: "Şube: Uncalı Mh. Çamlık Cd.",
+			Invite:   "Afiyet olsun! Memnun kaldıysanız Google’daki yorumunuz bizim için çok değerli.",
+		},
+		Tables:      24,
+		DefaultVAT:  10,
+		LockMinutes: 5,
+		Printer:     printing.DefaultConfig(),
+		Fullscreen:  true,
+	}
+}
+
+// Kâğıt adisyondaki 12 ürün; fiyatlar ilk açılışta sorulur.
+var defaultCategories = []struct{ name, color string }{
+	{"Yemekler", "bordo"}, {"İçecekler", "mavi"}, {"Tatlı ve Diğer", "turuncu"},
+}
+
+var defaultProducts = []struct {
+	name, unit string
+	cat        int
+}{
+	{"Cağ", "şiş", 0}, {"Şiş", "porsiyon", 0}, {"Yoğurt", "kase", 0}, {"Tatlı", "porsiyon", 2},
+	{"Salata", "porsiyon", 0}, {"Ayran", "adet", 1}, {"Şalgam", "adet", 1}, {"Kola", "adet", 1},
+	{"Soda", "adet", 1}, {"Büyük Su", "adet", 1}, {"Küçük Su", "adet", 1}, {"Çorba", "kase", 0},
+}
+
+func (s *Service) init() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var raw string
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key='settings'`).Scan(&raw)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		s.set = defaultSettings()
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		var n int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM categories`).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			ts := stamp(s.now())
+			catIDs := make([]int64, len(defaultCategories))
+			for i, c := range defaultCategories {
+				res, err := tx.Exec(`INSERT INTO categories(name,color,sort) VALUES(?,?,?)`, c.name, c.color, i)
+				if err != nil {
+					return err
+				}
+				catIDs[i], _ = res.LastInsertId()
+			}
+			for i, p := range defaultProducts {
+				if _, err := tx.Exec(`INSERT INTO products(name,category_id,price,vat,unit,active,sort,created_at,updated_at)
+					VALUES(?,?,0,NULL,?,1,?,?,?)`, p.name, catIDs[p.cat], p.unit, i, ts, ts); err != nil {
+					return err
+				}
+			}
+			if _, err := tx.Exec(`INSERT INTO waiters(name,active,sort) VALUES('Garson 1',1,0)`); err != nil {
+				return err
+			}
+		}
+		if err := saveSettingsTx(tx, s.set); err != nil {
+			return err
+		}
+		audit(tx, s.now(), "ilk_acilis", 0, nil)
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	default:
+		s.set = defaultSettings()
+		if err := json.Unmarshal([]byte(raw), &s.set); err != nil {
+			return err
+		}
+		if err := s.set.Printer.Normalize(); err != nil {
+			s.set.Printer = printing.DefaultConfig()
+		}
+	}
+	s.loadPinGuard()
+	var logo string
+	if err := s.db.QueryRow(`SELECT value FROM settings WHERE key='logo'`).Scan(&logo); err == nil && logo != "" {
+		if b, err := base64.StdEncoding.DecodeString(logo); err == nil {
+			if img, _, err := image.Decode(bytes.NewReader(b)); err == nil {
+				s.logo, s.logoImg = b, img
+				s.logoRev = s.now().UnixMilli()
+			}
+		}
+	}
+	return nil
+}
+
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+type querier interface {
+	execer
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+func saveSettingsTx(q execer, set Settings) error {
+	b, err := json.Marshal(set)
+	if err != nil {
+		return err
+	}
+	_, err = q.Exec(`INSERT INTO settings(key,value) VALUES('settings',?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, string(b))
+	return err
+}
+
+func audit(q execer, at time.Time, action string, no int64, detail any) {
+	var d sql.NullString
+	if detail != nil {
+		if b, err := json.Marshal(detail); err == nil {
+			d = sql.NullString{String: string(b), Valid: true}
+		}
+	}
+	var n sql.NullInt64
+	if no > 0 {
+		n = sql.NullInt64{Int64: no, Valid: true}
+	}
+	_, _ = q.Exec(`INSERT INTO audit_log(at,action,adisyon_no,detail) VALUES(?,?,?,?)`, stamp(at), action, n, d)
+}
+
+// ---- okuma yardımcıları ----
+
+func loadCategories(q querier) ([]Category, error) {
+	rows, err := q.Query(`SELECT id,name,color,sort FROM categories ORDER BY sort,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Category{}
+	for rows.Next() {
+		var c Category
+		if err := rows.Scan(&c.ID, &c.Name, &c.Color, &c.Sort); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func loadProducts(q querier) ([]Product, error) {
+	rows, err := q.Query(`SELECT id,name,category_id,price,vat,unit,active,sort FROM products ORDER BY sort,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Product{}
+	for rows.Next() {
+		var p Product
+		var vat sql.NullInt64
+		if err := rows.Scan(&p.ID, &p.Name, &p.CategoryID, &p.Price, &vat, &p.Unit, &p.Active, &p.Sort); err != nil {
+			return nil, err
+		}
+		if vat.Valid {
+			v := int(vat.Int64)
+			p.VAT = &v
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func loadProduct(q querier, id int64) (*Product, error) {
+	ps, err := loadProducts(q)
+	if err != nil {
+		return nil, err
+	}
+	for i := range ps {
+		if ps[i].ID == id {
+			return &ps[i], nil
+		}
+	}
+	return nil, uerr("not_found", "Ürün bulunamadı.")
+}
+
+func loadWaiters(q querier, activeOnly bool) ([]Waiter, error) {
+	query := `SELECT id,name,active FROM waiters ORDER BY sort,id`
+	if activeOnly {
+		query = `SELECT id,name,active FROM waiters WHERE active=1 ORDER BY sort,id`
+	}
+	rows, err := q.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Waiter{}
+	for rows.Next() {
+		var w Waiter
+		if err := rows.Scan(&w.ID, &w.Name, &w.Active); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+const adisyonCols = `no,business_date,table_no,COALESCE(waiter_id,0),waiter_name,status,opened_at,
+	COALESCE(printed_at,''),COALESCE(closed_at,''),print_count,changed,print_failed,COALESCE(cancel_reason,''),total,vat_total`
+
+func scanAdisyon(sc interface{ Scan(...any) error }) (*Adisyon, error) {
+	var a Adisyon
+	err := sc.Scan(&a.No, &a.BusinessDate, &a.Table, &a.WaiterID, &a.WaiterName, &a.Status, &a.OpenedAt,
+		&a.PrintedAt, &a.ClosedAt, &a.PrintCount, &a.Changed, &a.PrintFailed, &a.CancelReason, &a.Total, &a.VATTotal)
+	if err != nil {
+		return nil, err
+	}
+	a.Lines = []Line{}
+	return &a, nil
+}
+
+func loadLines(q querier, no int64) ([]Line, error) {
+	rows, err := q.Query(`SELECT id,COALESCE(product_id,0),name,unit,price,vat,qty,printed_qty FROM adisyon_lines WHERE adisyon_no=? ORDER BY pos,id`, no)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Line{}
+	for rows.Next() {
+		var l Line
+		if err := rows.Scan(&l.ID, &l.ProductID, &l.Name, &l.Unit, &l.Price, &l.VAT, &l.Qty, &l.PrintedQty); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+func loadAdisyon(q querier, no int64) (*Adisyon, error) {
+	a, err := scanAdisyon(q.QueryRow(`SELECT `+adisyonCols+` FROM adisyons WHERE no=?`, no))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, uerr("not_found", "Adisyon %d bulunamadı.", no)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if a.Lines, err = loadLines(q, no); err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+func loadActive(q querier) ([]Adisyon, error) {
+	rows, err := q.Query(`SELECT ` + adisyonCols + ` FROM adisyons WHERE status IN ('open','printed') ORDER BY table_no,no`)
+	if err != nil {
+		return nil, err
+	}
+	var out []Adisyon
+	for rows.Next() {
+		a, err := scanAdisyon(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, *a)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if out[i].Lines, err = loadLines(q, out[i].No); err != nil {
+			return nil, err
+		}
+	}
+	if out == nil {
+		out = []Adisyon{}
+	}
+	return out, nil
+}
+
+func activeForTable(q querier, table int) (*Adisyon, error) {
+	var no int64
+	err := q.QueryRow(`SELECT no FROM adisyons WHERE table_no=? AND status IN ('open','printed') ORDER BY no DESC LIMIT 1`, table).Scan(&no)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return loadAdisyon(q, no)
+}
+
+func nextNo(q querier) (int64, error) {
+	var n int64
+	err := q.QueryRow(`SELECT COALESCE(MAX(no),0)+1 FROM adisyons`).Scan(&n)
+	return n, err
+}
+
+// VATGroup bir KDV oranına düşen KDV dahil tutar ve içindeki KDV'dir.
+type VATGroup struct {
+	Rate  int   `json:"rate"`
+	Gross int64 `json:"gross"`
+	VAT   int64 `json:"vat"`
+}
+
+// VATBreakdown kalemleri KDV oranına göre gruplar; KDV her oran için ayrı hesaplanır.
+func VATBreakdown(lines []Line) (groups []VATGroup, total, vat int64) {
+	by := map[int]int64{}
+	for _, l := range lines {
+		g := l.Price * int64(l.Qty)
+		by[l.VAT] += g
+		total += g
+	}
+	rates := make([]int, 0, len(by))
+	for r := range by {
+		rates = append(rates, r)
+	}
+	sort.Ints(rates)
+	for _, r := range rates {
+		v := money.VAT(by[r], r)
+		groups = append(groups, VATGroup{Rate: r, Gross: by[r], VAT: v})
+		vat += v
+	}
+	return
+}
+
+func recalc(q querier, no int64) error {
+	lines, err := loadLines(q, no)
+	if err != nil {
+		return err
+	}
+	_, total, vat := VATBreakdown(lines)
+	_, err = q.Exec(`UPDATE adisyons SET total=?, vat_total=? WHERE no=?`, total, vat, no)
+	return err
+}
+
+// ---- durum ----
+
+// State ekranın güncel halini verir.
+func (s *Service) State() (*State, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stateLocked()
+}
+
+func (s *Service) stateLocked() (*State, error) {
+	cats, err := loadCategories(s.db)
+	if err != nil {
+		return nil, err
+	}
+	prods, err := loadProducts(s.db)
+	if err != nil {
+		return nil, err
+	}
+	waiters, err := loadWaiters(s.db, true)
+	if err != nil {
+		return nil, err
+	}
+	open, err := loadActive(s.db)
+	if err != nil {
+		return nil, err
+	}
+	nn, err := nextNo(s.db)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now()
+	s.seq++
+	st := &State{
+		Seq:          s.seq,
+		Boot:         s.boot,
+		Version:      s.opt.Version,
+		SetupDone:    s.set.SetupDone,
+		Business:     s.set.Business,
+		HasLogo:      len(s.logo) > 0,
+		LogoRev:      s.logoRev,
+		Tables:       s.set.Tables,
+		DefaultVAT:   s.set.DefaultVAT,
+		LockMinutes:  s.set.LockMinutes,
+		Categories:   cats,
+		Products:     prods,
+		Waiters:      waiters,
+		Open:         open,
+		UndoCounts:   s.undoCounts(),
+		NextNo:       nn,
+		BusinessDate: businessDate(now),
+		Printer:      s.set.Printer,
+		Units:        Units,
+		Colors:       Colors,
+		ServerTime:   stamp(now),
+	}
+	if !s.set.SetupDone {
+		st.Unlocked = true
+	} else if now.Before(s.unlockedUntil) {
+		st.Unlocked = true
+		st.UnlockLeftMs = s.unlockedUntil.Sub(now).Milliseconds()
+	}
+	if s.opt.Backup != nil {
+		dir, last, lerr, serr := s.opt.Backup.Status()
+		st.Backup = BackupInfo{Dir: dir, SecondDir: s.set.SecondBackupDir, LastAt: last, LastError: lerr, SecondError: serr}
+	} else {
+		st.Backup.SecondDir = s.set.SecondBackupDir
+	}
+	auto, sup := s.opt.Desktop.Autostart()
+	st.Program = ProgramInfo{
+		Mode:               s.opt.Desktop.Mode(),
+		Fullscreen:         s.set.Fullscreen,
+		Autostart:          auto,
+		AutostartSupported: sup,
+		DataDir:            s.opt.DataDir,
+	}
+	return st, nil
+}
+
+// Settings ayarların bir kopyasını verir.
+func (s *Service) Settings() Settings {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.set
+}
+
+// LogoPNG yüklenen logoyu verir (yoksa nil).
+func (s *Service) LogoPNG() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.logo
+}
+
+// ---- metin doğrulama ----
+
+func clean(s string, max int, field string) (string, error) {
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\r", ""))
+	if !utf8.ValidString(s) {
+		return "", uerr("invalid", "%s geçersiz karakter içeriyor.", field)
+	}
+	if utf8.RuneCountInString(s) > max {
+		return "", uerr("invalid", "%s en fazla %d karakter olabilir.", field, max)
+	}
+	return s, nil
+}
+
+func required(s string, max int, field string) (string, error) {
+	s, err := clean(s, max, field)
+	if err != nil {
+		return "", err
+	}
+	if s == "" {
+		return "", uerr("invalid", "%s boş bırakılamaz.", field)
+	}
+	return s, nil
+}
+
+func singleLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+type nullDesktop struct{}
+
+func (nullDesktop) Mode() string              { return "browser" }
+func (nullDesktop) Autostart() (bool, bool)   { return false, false }
+func (nullDesktop) SetAutostart(bool) error   { return errors.New("desteklenmiyor") }
+func (nullDesktop) WindowAction(string) error { return errors.New("desteklenmiyor") }
+func (nullDesktop) IsFullscreen() bool        { return false }
+func (nullDesktop) OpenFolder(string) error   { return errors.New("desteklenmiyor") }
+func (nullDesktop) RemovableDrives() []Drive  { return nil }

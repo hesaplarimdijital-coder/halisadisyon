@@ -22,8 +22,9 @@ func receiptBusiness(set Settings, logo image.Image) receipt.Business {
 }
 
 func (s *Service) receiptAdisyon(a *Adisyon, isCopy bool) receipt.Adisyon {
-	groups, total, _ := VATBreakdown(a.Lines)
-	r := receipt.Adisyon{No: a.No, Table: a.Table, Waiter: a.WaiterName, When: s.now(), Copy: isCopy, Total: total}
+	groups, subtotal, discount, total, _ := Breakdown(a.Lines, a.DiscountPercent)
+	r := receipt.Adisyon{No: a.No, Table: a.Table, Waiter: a.WaiterName, When: s.now(), Copy: isCopy, Total: total,
+		Subtotal: subtotal, DiscountPercent: a.DiscountPercent, Discount: discount}
 	for _, l := range a.Lines {
 		r.Lines = append(r.Lines, receipt.Line{Name: l.Name, Unit: l.Unit, Qty: l.Qty, Price: l.Price})
 	}
@@ -140,7 +141,7 @@ func (s *Service) print(no int64) (*PrintOutcome, *State, error) {
 		now := s.now()
 		if out.OK {
 			changed := 0
-			if !sameLines(cur.Lines, a.Lines) {
+			if !sameLines(cur.Lines, a.Lines) || cur.DiscountPercent != a.DiscountPercent {
 				changed = 1
 			}
 			if _, err := tx.Exec(`UPDATE adisyons SET status='printed', print_count=print_count+1, printed_at=?,
@@ -153,7 +154,7 @@ func (s *Service) print(no int64) (*PrintOutcome, *State, error) {
 					return err
 				}
 			}
-			_, printedTotal, _ := VATBreakdown(a.Lines)
+			_, _, _, printedTotal, _ := Breakdown(a.Lines, a.DiscountPercent)
 			audit(tx, now, "basildi", no, map[string]any{"kopya": isCopy, "sira": cur.PrintCount + 1, "tutar": printedTotal, "mod": set.Printer.Mode})
 		} else {
 			if _, err := tx.Exec(`UPDATE adisyons SET print_failed=1 WHERE no=?`, no); err != nil {

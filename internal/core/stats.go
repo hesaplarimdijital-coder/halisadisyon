@@ -44,6 +44,7 @@ type DayPoint struct {
 	Unknown   int64  `json:"unknown"` // ödeme şekli kaydı olmayan (eski sürüm)
 	Cancelled int    `json:"cancelled"`
 	VAT       int64  `json:"vat"`
+	Discount  int64  `json:"discount"` // yapılan indirim toplamı (kuruş)
 }
 
 // MonthPoint bir ayın toplamlarıdır (yıllık görünüm).
@@ -84,6 +85,8 @@ type Stats struct {
 	VAT            int64         `json:"vat"`
 	Cancelled      int           `json:"cancelled"`
 	CancelledTotal int64         `json:"cancelledTotal"`
+	Discounts      int           `json:"discounts"`     // indirimli ödenen adisyon
+	DiscountTotal  int64         `json:"discountTotal"` // yapılan indirim toplamı
 	Days           []DayPoint    `json:"days"`
 	Months         []MonthPoint  `json:"months"`
 	Products       []ProductQty  `json:"products"`
@@ -285,7 +288,8 @@ func (s *Service) stats(q StatsQuery) (*Stats, error) {
 		COALESCE(SUM(CASE WHEN payment_method='nakit' THEN total END),0),
 		COALESCE(SUM(CASE WHEN payment_method='kart' THEN total END),0),
 		COALESCE(SUM(CASE WHEN payment_method='havale' THEN total END),0),
-		COALESCE(SUM(CASE WHEN COALESCE(payment_method,'') NOT IN ('nakit','kart','havale') THEN total END),0)
+		COALESCE(SUM(CASE WHEN COALESCE(payment_method,'') NOT IN ('nakit','kart','havale') THEN total END),0),
+		COALESCE(SUM(discount_amount),0), COUNT(CASE WHEN discount_amount>0 THEN 1 END)
 		FROM adisyons WHERE status='paid' AND business_date BETWEEN ? AND ? GROUP BY business_date`, F, T)
 	if err != nil {
 		return nil, err
@@ -293,7 +297,8 @@ func (s *Service) stats(q StatsQuery) (*Stats, error) {
 	var revenue, count int64
 	for rows.Next() {
 		var d DayPoint
-		if err := rows.Scan(&d.Date, &d.Count, &d.Revenue, &d.VAT, &d.Cash, &d.Card, &d.Transfer, &d.Unknown); err != nil {
+		var discounts int
+		if err := rows.Scan(&d.Date, &d.Count, &d.Revenue, &d.VAT, &d.Cash, &d.Card, &d.Transfer, &d.Unknown, &d.Discount, &discounts); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -304,6 +309,8 @@ func (s *Service) stats(q StatsQuery) (*Stats, error) {
 		revenue += d.Revenue
 		count += int64(d.Count)
 		st.VAT += d.VAT
+		st.Discounts += discounts
+		st.DiscountTotal += d.Discount
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {

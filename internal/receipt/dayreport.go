@@ -34,6 +34,8 @@ type DayReport struct {
 	Paid           int
 	Cancelled      int
 	CancelledTotal int64
+	Discounts      int   // indirimli ödenen adisyon sayısı
+	DiscountTotal  int64 // yapılan indirim toplamı (kuruş)
 	Merged         int
 	Open           int
 	Revenue        int64
@@ -90,6 +92,9 @@ func RenderDaySummary(b Business, d DayReport, width int) (*image.Gray, error) {
 		cancel += " · " + money.Format(d.CancelledTotal)
 	}
 	c.row("İptal", f, cancel, fb, 0, int(3*sf))
+	if d.Discounts > 0 {
+		c.row("İndirimli adisyon", f, fmt.Sprintf("%d · −%s", d.Discounts, money.Format(d.DiscountTotal)), fb, 0, int(3*sf))
+	}
 	if d.Merged > 0 {
 		c.row("Birleştirilen masa", f, fmt.Sprint(d.Merged), fb, 0, int(3*sf))
 	}

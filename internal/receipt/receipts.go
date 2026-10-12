@@ -39,16 +39,20 @@ type VATGroup struct {
 	Gross, VAT int64
 }
 
-// Adisyon basılacak müşteri adisyonudur.
+// Adisyon basılacak müşteri adisyonudur. Total indirim düşülmüş tutardır;
+// indirim varsa ara toplam ve indirim satırı da basılır.
 type Adisyon struct {
-	No     int64
-	Table  int
-	Waiter string
-	When   time.Time
-	Copy   bool
-	Lines  []Line
-	Total  int64
-	VATs   []VATGroup
+	No              int64
+	Table           int
+	Waiter          string
+	When            time.Time
+	Copy            bool
+	Lines           []Line
+	Subtotal        int64
+	DiscountPercent int
+	Discount        int64
+	Total           int64
+	VATs            []VATGroup
 }
 
 // TestInfo test fişinde yazacak yazıcı bilgileridir.
@@ -164,6 +168,11 @@ func RenderAdisyon(b Business, a Adisyon, width int) (*image.Gray, error) {
 	}
 	c.rule(true, 2, int(4*sf), int(12*sf))
 
+	if a.DiscountPercent > 0 {
+		mid := face(semibold, 25*sf)
+		c.row("Ara toplam", mid, money.Format(a.Subtotal), mid, 0, int(3*sf))
+		c.row(fmt.Sprintf("İndirim (%%%d)", a.DiscountPercent), mid, "−"+money.Format(a.Discount), mid, 0, int(8*sf))
+	}
 	c.row("TOPLAM", face(bold, 32*sf), money.TL(a.Total), face(bold, 44*sf), 0, int(4*sf))
 	small := face(regular, 22*sf)
 	c.line("Fiyatlara KDV dahildir", small, left, 0, int(2*sf))

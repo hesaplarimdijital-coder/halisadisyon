@@ -51,7 +51,10 @@ p { margin: 0; }
 /* ---- Üst menü ---- */
 .top { position: sticky; top: 0; z-index: 30; background: var(--surface); border-bottom: 1px solid var(--line); }
 .top-in { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 8px 16px; }
-.brand { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; margin-right: auto; min-width: 0; }
+/* Marka alanı küçülebilir (uzun gün adı: Pazartesi, Çarşamba); menü ve güç düğmesi alt satıra kaymaz. */
+.brand { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; margin-right: auto; min-width: 0; flex: 1 1 120px; }
+/* Dar ekranda marka tek satır, menü ve güç düğmesi altında (iki satır, üç değil). */
+@media (max-width: 1180px) { .brand { flex-basis: 100%; } }
 .brand-name { font-size: 26px; font-weight: 700; color: var(--accent-text); letter-spacing: -.01em; }
 .brand-sub { font-size: 20px; font-weight: 600; }
 .clock { font-size: 18px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
@@ -211,6 +214,11 @@ p { margin: 0; }
 .total-row .lbl { font-size: 19px; font-weight: 700; }
 .total-amount { font-size: 40px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .kdv-row { display: flex; justify-content: space-between; gap: 12px; font-size: 18px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.kdv-row.disc { color: var(--good-strong); font-weight: 600; }
+.kdv-row .linkish.small { font-size: 16px; min-height: 28px; padding: 0 4px; margin-left: 4px; }
+.disc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.disc-btn { min-height: 84px; gap: 4px; }
+.disc-btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft, var(--sunken)); }
 .ticket-actions { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .ticket-actions .btn { padding: 0 8px; font-size: 18px; gap: 6px; white-space: nowrap; }
 .ticket-more { display: flex; flex-wrap: wrap; gap: 4px 18px; justify-content: center; }

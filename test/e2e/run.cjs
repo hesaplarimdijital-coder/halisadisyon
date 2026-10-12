@@ -124,7 +124,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   await click('[data-act="open-table"][data-t="5"]');
   await page.waitForSelector('.pick');
   await shot('06_garson_sec');
-  await page.getByRole('button', { name: 'Ahmet' }).click();
+  await page.getByRole('button', { name: 'Ahmet', exact: true }).click();
   await page.waitForSelector('.prods');
   // Ürün butonu adıyla tam eşleşir (“Şiş” birim adı “şiş” olan Cağ'a da uymasın).
   const prod = name => page.locator('.prod', { has: page.locator('.prod-name', { hasText: new RegExp('^' + name + '$') }) }).first();
@@ -189,7 +189,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
 
   // Masa 4: basılmadan kapatma uyarısı, klavyeden 1 = Nakit
   await click('[data-act="open-table"][data-t="4"]');
-  await page.getByRole('button', { name: 'Mehmet' }).click();
+  await page.getByRole('button', { name: 'Mehmet', exact: true }).click();
   await page.waitForSelector('.prods');
   await prod('Şiş').click(); await prod('Ayran').click();
   await until(() => (document.querySelector('.total-amount') || {}).textContent?.includes('350,00'));
@@ -203,7 +203,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
 
   // Masa 9: iptal (şifre + sebep)
   await click('[data-act="open-table"][data-t="9"]');
-  await page.getByRole('button', { name: 'Mehmet' }).click();
+  await page.getByRole('button', { name: 'Mehmet', exact: true }).click();
   await prod('Şiş').click(); await prod('Salata').click();
   await sleep(150);
   await click('[data-act="cancel"]');
@@ -220,9 +220,48 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   await page.waitForSelector('.tiles');
   check('iptal edilen masa boşaldı', await page.locator('[data-t="9"] .tile-sub').textContent().then(t => t.includes('Boş')));
 
+  // Masa 13: yüzde indirim (şifre ister), fişte ve toplamda görünür, kaldırılır, yeniden uygulanır
+  await click('[data-act="open-table"][data-t="13"]');
+  await page.getByRole('button', { name: 'Mehmet', exact: true }).click();
+  await page.waitForSelector('.prods');
+  await prod('Cağ').click(); await prod('Cağ').click();
+  await until(() => (document.querySelector('.total-amount') || {}).textContent?.includes('680,00'));
+  await click('[data-act="discount"]');
+  await page.waitForSelector('.disc-grid');
+  await shot('12d_indirim');
+  check('indirim penceresinde hazır yüzdeler', await page.locator('[data-act="discount-set"]').count() >= 6);
+  await page.locator('[data-act="discount-set"][data-pct="10"]').click();
+  await page.waitForSelector('.keypad');
+  await page.keyboard.type('2468');
+  await until(() => !!document.querySelector('.kdv-row.disc'));
+  const discRow = await page.locator('.kdv-row.disc').textContent().catch(() => '');
+  check('indirim satırı ve indirimli toplam', discRow.includes('%10') && discRow.includes('68,00') && (await page.locator('.total-amount').textContent()).includes('612,00'), discRow);
+  check('KDV indirimli tutardan', (await page.locator('.kdv-row').first().textContent()).includes('Ara toplam') && (await page.locator('.kdv-row').last().textContent()).includes('55,64'));
+  const jobsBeforeDisc = jobs;
+  await btn('Adisyonu Bas');
+  await toastText('basıldı');
+  await sleep(300);
+  check('indirimli adisyon basıldı', jobs === jobsBeforeDisc + 1);
+  await shot('12e_indirimli_adisyon');
+  await page.locator('[data-act="discount-clear"]').click();
+  await until(() => (document.querySelector('.total-amount') || {}).textContent?.includes('680,00'));
+  check('indirim şifresiz kaldırıldı', (await page.locator('.total-amount').textContent()).includes('680,00') && await page.locator('.kdv-row.disc').count() === 0);
+  check('indirim değişince tekrar bas uyarısı', (await page.locator('.ticket .note.warn').textContent().catch(() => '')).includes('değişti'));
+  await click('[data-act="discount"]');
+  await page.waitForSelector('#disc-pct');
+  await page.fill('#disc-pct', '25');
+  await click('[data-act="discount-custom"]');
+  await page.waitForSelector('.keypad');
+  await page.keyboard.type('2468');
+  await until(() => (document.querySelector('.total-amount') || {}).textContent?.includes('510,00'));
+  check('elle yüzde (%25) uygulandı', (await page.locator('.total-amount').textContent()).includes('510,00'));
+  await btn('Masalar');
+  await page.waitForSelector('.tiles');
+  check('indirimli masa dolu görünür', (await page.locator('[data-t="13"]').getAttribute('class')).includes('busy') && (await page.locator('[data-t="13"] .tile-amount').textContent()).includes('510,00'));
+
   // Masa 14: basılmış adisyonu “−” ile boşaltmak şifre ister
   await click('[data-act="open-table"][data-t="14"]');
-  await page.getByRole('button', { name: 'Ahmet' }).click();
+  await page.getByRole('button', { name: 'Ahmet', exact: true }).click();
   await prod('Ayran').click();
   await btn('Adisyonu Bas');
   await toastText('basıldı');
@@ -239,7 +278,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
 
   // Masa 12: ürün sil ve boşalt
   await click('[data-act="open-table"][data-t="12"]');
-  await page.getByRole('button', { name: 'Ahmet' }).click();
+  await page.getByRole('button', { name: 'Ahmet', exact: true }).click();
   await prod('Kola').click();
   await page.locator('.line', { hasText: 'Kola' }).locator('[data-d="-1"]').click();
   await sleep(150);
@@ -248,7 +287,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
 
   // Masa 3 ve 7 açık kalsın, 3'ün baskısı hata versin
   await click('[data-act="open-table"][data-t="7"]');
-  await page.getByRole('button', { name: 'Mehmet' }).click();
+  await page.getByRole('button', { name: 'Mehmet', exact: true }).click();
   for (let i = 0; i < 4; i++) await prod('Cağ').click();
   await prod('Şalgam').click(); await prod('Şalgam').click();
   await btn('Adisyonu Bas');
@@ -271,7 +310,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   await page.waitForSelector('.tiles');
   check('eski masa boş, yeni masa dolu', (await page.locator('[data-t="7"] .tile-sub').textContent()).includes('Boş') && (await page.locator('[data-t="8"]').getAttribute('class')).includes('busy'));
   await click('[data-act="open-table"][data-t="10"]');
-  await page.getByRole('button', { name: 'Ahmet' }).click();
+  await page.getByRole('button', { name: 'Ahmet', exact: true }).click();
   await prod('Cağ').click(); await prod('Kola').click();
   await sleep(150);
   await click('[data-act="move-table"]');
@@ -373,7 +412,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   await sleep(300);
   await btn('Masalar');
   await click('[data-act="open-table"][data-t="3"]');
-  await page.getByRole('button', { name: 'Ahmet' }).click();
+  await page.getByRole('button', { name: 'Ahmet', exact: true }).click();
   await prod('Yoğurt').click();
   await btn('Adisyonu Bas');
   await page.waitForSelector('.err-box', { timeout: 10000 });
@@ -515,7 +554,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   // Açık masaları kapat, günü kapat
   await btn('Masalar');
   let dbl = false;
-  for (const t of [3, 8, 11]) {
+  for (const t of [3, 8, 11, 13]) {
     if (!(await page.locator(`[data-t="${t}"]`).getAttribute('class')).includes('busy')) continue;
     await click(`[data-act="open-table"][data-t="${t}"]`);
     await page.waitForSelector('.ticket');
@@ -542,9 +581,61 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
     await page.waitForSelector('.tiles');
   }
   check('tüm masalar kapandı', await page.locator('.tile.busy').count() === 0);
+
+  // Ödenmiş adisyonu düzeltmek için yeniden açma (şifre + sebep), düzeltip yeniden ödeme
+  await click('[data-act="nav"][data-to="gunsonu"]');
+  await page.waitForSelector('.kpis');
+  await until(() => !!document.querySelector('.kpis') && document.querySelector('.main').textContent.includes('İndirim'));
+  check('gün sonunda indirim kartı', (await page.locator('.kpis').textContent()).includes('İndirim') && (await page.locator('.main').textContent()).includes('%25 indirim'));
+  const discNo = Number(await page.locator('tr.click', { hasText: 'Masa 13' }).first().getAttribute('data-no'));
+  await page.locator(`tr.click[data-no="${discNo}"]`).first().click();
+  await page.waitForSelector('.modal .hist');
+  check('ayrıntıda indirim satırı', (await page.locator('.modal').textContent()).includes('İndirim (%25)'));
+  await page.getByRole('button', { name: 'Düzeltmek için yeniden aç' }).click();
+  await page.waitForSelector('#reopen-reason');
+  await shot('23b_yeniden_ac');
+  await page.getByRole('button', { name: 'Yeniden aç' }).click();
+  check('yeniden açmada sebep zorunlu', await page.locator('#reopen-reason').count() === 1);
+  await page.fill('#reopen-reason', '1 yerine 2 cağ yazılmış');
+  await page.getByRole('button', { name: 'Yeniden aç' }).click();
+  await page.waitForSelector('.keypad');
+  await page.keyboard.type('2468');
+  await page.waitForSelector('.ticket', { timeout: 10000 });
+  await sleep(300);
+  check('yeniden açılan adisyon masada, basıldı durumunda', (await page.locator('.order-head').textContent()).includes('Masa 13') && (await page.locator('.order-head .pill').textContent()).includes('Basıldı'));
+  check('yeniden açılınca indirim duruyor', (await page.locator('.kdv-row.disc').textContent()).includes('%25'));
+  await page.locator('.line', { hasText: 'Cağ' }).locator('[data-d="-1"]').click();
+  await page.waitForSelector('.keypad');
+  await page.keyboard.type('2468');
+  await until(() => (document.querySelector('.total-amount') || {}).textContent?.includes('255,00'));
+  check('düzeltilen adet ve indirimli toplam (255,00)', (await page.locator('.total-amount').textContent()).includes('255,00'));
+  await btn('Hesap Ödendi');
+  await page.waitForSelector('.pay-methods');
+  await page.locator('.pay-btn', { hasText: 'Havale' }).click();
+  const tRe = await toastText('kapatıldı');
+  check('düzeltilen hesap yeniden ödendi', tRe.includes('255,00') && tRe.includes('Havale'), tRe);
+  await page.waitForSelector('.tiles');
   await click('[data-act="nav"][data-to="gunsonu"]');
   await page.waitForSelector('.kpis');
   await sleep(300);
+  await page.locator(`tr.click[data-no="${discNo}"]`).first().click();
+  await page.waitForSelector('.modal .hist');
+  const reHist = await page.locator('.modal .hist').textContent();
+  check('geçmişte yeniden açma ve iki ödeme', reHist.includes('Düzeltmek için yeniden açıldı') && reHist.includes('1 yerine 2 cağ') && (reHist.match(/Hesap ödendi/g) || []).length === 2, reHist.slice(0, 200));
+  await page.keyboard.press('Escape');
+  // Ödenmiş adisyonu iptal etme (No 2, Masa 4)
+  await page.locator('tr.click[data-no="2"]').first().click();
+  await page.waitForSelector('.modal .hist');
+  await page.getByRole('button', { name: 'İptal et' }).click();
+  await page.waitForSelector('input[name="reason"]');
+  await page.locator('input[name="reason"]').first().check();
+  await page.getByRole('button', { name: 'Adisyonu iptal et' }).click();
+  await page.waitForSelector('.keypad');
+  await page.keyboard.type('2468');
+  await toastText('iptal edildi');
+  await until(() => [...document.querySelectorAll('tr.click[data-no="2"]')].some(r => r.textContent.includes('İptal')));
+  const listRow = page.locator('section', { hasText: 'Adisyonlar' }).locator('tr.click[data-no="2"]').first();
+  check('ödenmiş adisyon iptal edildi', (await listRow.textContent()).includes('İptal') && !(await listRow.textContent()).includes('Nakit'), await listRow.textContent());
   const jobsBeforeClose = jobs;
   await page.getByRole('button', { name: 'Günü kapat' }).click();
   await page.waitForSelector('#close-print');
@@ -590,7 +681,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   // o adisyon ekrandan kalkar ama numarası tekrar kullanılmaz.
   await btn('Masalar');
   await click('[data-act="open-table"][data-t="1"]');
-  await page.getByRole('button', { name: 'Ahmet' }).click();
+  await page.getByRole('button', { name: 'Ahmet', exact: true }).click();
   await prod('Ayran').click();
   await sleep(200);
   await btn('Masalar');

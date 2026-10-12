@@ -123,6 +123,9 @@ type DayRow struct {
 	Changed      bool   `json:"changed"`
 	MergedInto   int64  `json:"mergedInto,omitempty"`
 	CancelReason string `json:"cancelReason,omitempty"`
+	// DiscountPercent ve Discount: adisyona uygulanan yüzde indirim ve tutarı.
+	DiscountPercent int   `json:"discountPercent,omitempty"`
+	Discount        int64 `json:"discount,omitempty"`
 }
 
 // DayWarning gün sonu uyarısıdır. Level: "bad" (kırmızı), "warn" (sarı).
@@ -152,6 +155,8 @@ type DaySummary struct {
 	VATs           []VATGroup    `json:"vats"` // KDV oranlarına göre
 	Avg            int64         `json:"avg"`
 	CancelledTotal int64         `json:"cancelledTotal"`
+	Discounts      int           `json:"discounts"`     // indirimli ödenen adisyon
+	DiscountTotal  int64         `json:"discountTotal"` // yapılan indirim toplamı
 	ByPayment      []PayTotal    `json:"byPayment"`
 	ByWaiter       []WaiterTotal `json:"byWaiter"`
 	Products       []ProductQty  `json:"products"`
@@ -243,13 +248,18 @@ func (s *Service) daySummary(q querier, date string) (*DaySummary, error) {
 		}
 		row := DayRow{No: a.No, Table: a.Table, Waiter: a.WaiterName, OpenedAt: a.OpenedAt, ClosedAt: a.ClosedAt,
 			Status: a.Status, StatusText: statusText(a), Payment: a.PaymentMethod, PaymentLabel: PaymentLabel(a.PaymentMethod),
-			Total: a.Total, PrintCount: a.PrintCount, Changed: a.Changed, MergedInto: a.MergedInto, CancelReason: a.CancelReason}
+			Total: a.Total, PrintCount: a.PrintCount, Changed: a.Changed, MergedInto: a.MergedInto, CancelReason: a.CancelReason,
+			DiscountPercent: a.DiscountPercent, Discount: a.DiscountAmount}
 		ds.Rows = append(ds.Rows, row)
 		switch a.Status {
 		case StatusPaid:
 			ds.Paid++
 			ds.Revenue += a.Total
 			ds.VAT += a.VATTotal
+			if a.DiscountAmount > 0 {
+				ds.Discounts++
+				ds.DiscountTotal += a.DiscountAmount
+			}
 			p := pay[a.PaymentMethod]
 			if p == nil {
 				p = &PayTotal{Method: a.PaymentMethod, Label: PaymentLabel(a.PaymentMethod)}
@@ -366,9 +376,9 @@ func (s *Service) daySummary(q querier, date string) (*DaySummary, error) {
 }
 
 // vatTotals ödenen adisyonların KDV'sini orana göre toplar. Her adisyonun KDV'si
-// fişte olduğu gibi (adisyon içinde, oran başına) hesaplanır.
+// fişte olduğu gibi (adisyon içinde, oran başına, indirim düşülerek) hesaplanır.
 func vatTotals(q querier, where string, args ...any) ([]VATGroup, error) {
-	rows, err := q.Query(`SELECT l.vat, SUM(l.qty*l.price) FROM adisyon_lines l JOIN adisyons a ON a.no=l.adisyon_no
+	rows, err := q.Query(`SELECT l.vat, a.discount_percent, SUM(l.qty*l.price) FROM adisyon_lines l JOIN adisyons a ON a.no=l.adisyon_no
 		WHERE a.status='paid' AND `+where+` GROUP BY l.adisyon_no, l.vat`, args...)
 	if err != nil {
 		return nil, err
@@ -376,9 +386,9 @@ func vatTotals(q querier, where string, args ...any) ([]VATGroup, error) {
 	defer rows.Close()
 	by := map[int]*VATGroup{}
 	for rows.Next() {
-		var rate int
+		var rate, pct int
 		var gross int64
-		if err := rows.Scan(&rate, &gross); err != nil {
+		if err := rows.Scan(&rate, &pct, &gross); err != nil {
 			return nil, err
 		}
 		g := by[rate]
@@ -386,8 +396,10 @@ func vatTotals(q querier, where string, args ...any) ([]VATGroup, error) {
 			g = &VATGroup{Rate: rate}
 			by[rate] = g
 		}
-		g.Gross += gross
-		g.VAT += money.VAT(gross, rate)
+		d := discountOf(gross, pct)
+		g.Gross += gross - d
+		g.Discount += d
+		g.VAT += money.VAT(gross-d, rate)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

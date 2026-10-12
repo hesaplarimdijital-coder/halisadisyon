@@ -351,7 +351,9 @@ func (s *Service) ChangeWaiter(no, waiterID int64) (*State, error) {
 }
 
 // Cancel adisyonu sebep yazarak iptal eder. Her iptal için yönetici şifresi
-// ayrıca istenir (açık yönetici girişi yetmez). Silme yoktur.
+// ayrıca istenir (açık yönetici girişi yetmez). Silme yoktur. Ödenmiş adisyon
+// da (günü kapatılmadıysa) iptal edilebilir; ödeme kaydı kalkar, işlem kaydında
+// durur.
 func (s *Service) Cancel(no int64, reason, pin string) (*State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -379,11 +381,15 @@ func (s *Service) Cancel(no int64, reason, pin string) (*State, error) {
 			return uerr("closed", "Adisyon %d'in günü kapatılmış; değiştirilemez.", no)
 		}
 		now := s.now()
-		if _, err := tx.Exec(`UPDATE adisyons SET status='cancelled', closed_at=?, cancel_reason=? WHERE no=?`,
+		if _, err := tx.Exec(`UPDATE adisyons SET status='cancelled', closed_at=?, cancel_reason=?, payment_method=NULL WHERE no=?`,
 			stamp(now), reason, no); err != nil {
 			return err
 		}
-		audit(tx, now, "iptal", no, map[string]any{"sebep": reason, "eski_durum": a.Status, "tutar": a.Total, "masa": a.Table})
+		d := map[string]any{"sebep": reason, "eski_durum": a.Status, "tutar": a.Total, "masa": a.Table}
+		if a.Status == StatusPaid {
+			d["eski_odeme"] = a.PaymentMethod
+		}
+		audit(tx, now, "iptal", no, d)
 		return nil
 	})
 	if err != nil {

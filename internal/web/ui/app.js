@@ -133,10 +133,14 @@ const productById = id => S.products.find(p => p.id === id);
 const activeFor = t => S.open.find(a => a.table === t);
 const waiterName = id => { const w = S.waiters.find(x => x.id === id); return w ? w.name : ''; };
 
-function vatBreakdown(lines) {
+// Programdaki Breakdown ile aynı kuruşlar: indirim orana düşen tutardan yarım
+// yukarı yuvarlanarak düşülür, KDV indirimli tutardan hesaplanır.
+const discountOf = (gross, pct) => !(pct > 0) || gross <= 0 ? 0 : pct >= 100 ? gross : Math.floor((gross * pct + 50) / 100);
+const vatOf = (gross, r) => gross <= 0 || r <= 0 ? 0 : Math.floor((gross * r * 2 + (100 + r)) / (2 * (100 + r)));
+function vatBreakdown(lines, pct) {
   const by = {};
   for (const l of lines) by[l.vat] = (by[l.vat] || 0) + l.price * l.qty;
-  return Object.keys(by).map(Number).sort((a, b) => a - b).map(r => ({ rate: r, gross: by[r], vat: Math.round(by[r] * r / (100 + r)) }));
+  return Object.keys(by).map(Number).sort((a, b) => a - b).map(r => { const d = discountOf(by[r], pct || 0); return { rate: r, gross: by[r] - d, discount: d, vat: vatOf(by[r] - d, r) }; });
 }
 
 // ---------- Program ile konuşma ----------
@@ -434,8 +438,11 @@ function scOrder(t) {
   const lines = a ? a.lines : [];
   const waiter = a ? a.waiterName : waiterName(d.waiterId);
   const opened = a ? a.openedAt : d.openedAt;
-  const total = lines.reduce((s, l) => s + l.price * l.qty, 0);
-  const kd = vatBreakdown(lines);
+  const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
+  const pct = a ? (a.discountPercent || 0) : 0;
+  const kd = vatBreakdown(lines, pct);
+  const discount = kd.reduce((s, k) => s + k.discount, 0);
+  const total = subtotal - discount;
   const qtyOf = pid => lines.filter(l => l.productId === pid).reduce((s, l) => s + l.qty, 0);
   // Bu adisyon basılırken ya da kapanırken ürün eklenmesin (basılan ile kapanan tutar aynı kalsın).
   const frozen = !!(a && ui.busy && (ui.busy === 'print:' + a.no || ui.busy === 'pay:' + a.no || ui.busy === 'move:' + a.no || ui.busy === 'paywait:' + t));
@@ -478,10 +485,12 @@ function scOrder(t) {
 
   return '<div class="order"><div class="order-head"><button type="button" class="btn" data-act="nav" data-to="masalar" data-fk="back">' + ic('back') + 'Masalar</button><h1>Masa ' + t + '</h1>' + chip +
     '<div class="order-meta"><span>No <strong>' + (a ? a.no : '—') + '</strong></span><span>Açılış <strong>' + hm(opened) + '</strong></span><button type="button" class="btn waiter-btn" data-act="change-waiter" data-t="' + t + '" data-fk="cw" aria-label="Garson ' + esc(waiter) + ', değiştir">' + ic('user', 20) + '<strong>' + esc(waiter) + '</strong><span class="muted">değiştir</span></button>' +
-    (a ? '<button type="button" class="btn" data-act="move-table" data-t="' + t + '" data-fk="mv"' + (ui.busy ? ' disabled' : '') + '>' + ic('move', 20) + 'Masayı taşı</button>' : '') + '</div></div>' +
+    (a ? '<button type="button" class="btn" data-act="move-table" data-t="' + t + '" data-fk="mv"' + (ui.busy ? ' disabled' : '') + '>' + ic('move', 20) + 'Masayı taşı</button>' : '') +
+    (a ? '<button type="button" class="btn' + (pct ? ' btn-outline' : '') + '" data-act="discount" data-t="' + t + '" data-fk="disc"' + (ui.busy ? ' disabled' : '') + ' aria-label="' + (pct ? 'İndirim yüzde ' + pct + ', değiştir' : 'İndirim uygula' + (S.discountNoPin ? '' : ', yönetici şifresi gerekir')) + '">' + ic(pct || S.discountNoPin ? 'percent' : 'lock', 20) + (pct ? '<strong>İndirim %' + pct + '</strong>' : 'İndirim') + '</button>' : '') + '</div></div>' +
     '<section class="products" aria-label="Ürünler">' + tabs + groups + '</section>' +
     '<aside class="card ticket" aria-label="Adisyon"><div class="ticket-head"><h2>Adisyon</h2>' + ticketSub + '</div>' + notice + lineHTML +
-    '<div class="totals"><div class="total-row"><span class="lbl">Toplam (KDV dahil)</span><span class="total-amount">' + TL(total) + '</span></div>' + kd.map(k => '<div class="kdv-row"><span>İçindeki KDV (%' + k.rate + ')</span><span>' + TL(k.vat) + '</span></div>').join('') + '</div>' +
+    '<div class="totals">' + (pct ? '<div class="kdv-row"><span>Ara toplam</span><span>' + TL(subtotal) + '</span></div><div class="kdv-row disc"><span>İndirim (%' + pct + ') <button type="button" class="linkish small" data-act="discount-clear" data-t="' + t + '"' + (frozen ? ' disabled' : '') + '>kaldır</button></span><span>−' + TL(discount) + '</span></div>' : '') +
+    '<div class="total-row"><span class="lbl">Toplam (KDV dahil)</span><span class="total-amount">' + TL(total) + '</span></div>' + kd.map(k => '<div class="kdv-row"><span>İçindeki KDV (%' + k.rate + ')</span><span>' + TL(k.vat) + '</span></div>').join('') + '</div>' +
     '<button type="button" class="btn btn-primary btn-xl' + (busyPrint ? ' busy' : '') + '" data-busy="Basılıyor…" data-act="print" data-t="' + t + '" data-fk="print"' + (lines.length && !ui.busy ? '' : ' disabled') + '>' + ic('printer', 28) + (a && a.status === 'printed' ? 'Tekrar Bas' : 'Adisyonu Bas') + '</button>' +
     '<div class="ticket-actions">' + payBtn + '<button type="button" class="btn" data-act="undo" data-t="' + t + '" data-fk="undo"' + (undoCount && !ui.busy ? '' : ' disabled') + '>' + ic('undo') + 'Geri Al</button><button type="button" class="btn btn-danger-quiet" data-act="cancel" data-t="' + t + '" data-fk="cancel"' + (a && !ui.busy ? '' : ' disabled') + ' aria-label="İptal, yönetici şifresi gerekir">' + ic('lock', 20) + 'İptal</button></div>' +
     '</aside></div>';
@@ -541,7 +550,7 @@ function scDay() {
   const feat = D.featured ? kpi('Satılan ' + D.featured.name, nf0.format(D.featured.qty) + ' <span class="muted" style="font-size:20px">' + esc(D.featured.unit) + '</span>') : '';
   const vatText = (D.vats || []).length > 1 ? D.vats.map(v => 'KDV %' + v.rate + ' ' + TL(v.vat)).join(' · ') : (D.vats || []).length === 1 ? 'KDV %' + D.vats[0].rate + ': ' + TL(D.vat) : 'KDV ' + TL(D.vat);
   const kpis = '<div class="kpis">' + kpi('Ciro (KDV dahil)', TL(D.revenue), vatText + ' · matrah ' + TL(D.revenue - D.vat)) + kpi('Ödenen adisyon', nf0.format(D.paid), D.firstNo ? 'No ' + D.firstNo + '–' + D.lastNo : '') + kpi('Ortalama adisyon', TL(D.avg)) + feat +
-    kpi('İptal', nf0.format(D.cancelled), D.cancelled ? TL(D.cancelledTotal) : (D.merged ? D.merged + ' masa birleşti' : '')) + (D.open ? kpi('Açık masa', '<span style="color:var(--bad)">' + D.open + '</span>', 'Gün kapatılmadan önce kapatılmalı') : '') + '</div>';
+    kpi('İptal', nf0.format(D.cancelled), D.cancelled ? TL(D.cancelledTotal) : (D.merged ? D.merged + ' masa birleşti' : '')) + (D.discounts ? kpi('İndirim', '−' + TL(D.discountTotal), D.discounts + ' adisyon') : '') + (D.open ? kpi('Açık masa', '<span style="color:var(--bad)">' + D.open + '</span>', 'Gün kapatılmadan önce kapatılmalı') : '') + '</div>';
   const pay = '<section class="card pad stack"><div class="card-head"><h2>Ödeme şekilleri</h2><span class="muted small">Kasa sayımı için</span></div>' + payShareHTML(D.byPayment || [], D.revenue) + '</section>';
   const waiters = '<section class="card pad stack"><div class="card-head"><h2>Garsonlar</h2></div>' + ((D.byWaiter || []).length ? '<table class="legend-table"><tbody>' + D.byWaiter.map(w => '<tr><td>' + ic('user', 18) + ' ' + esc(w.name) + '</td><td class="r muted">' + w.count + ' adisyon</td><td class="r"><strong>' + TL(w.total) + '</strong></td></tr>').join('') + '</tbody></table>' : '<p class="muted">Ödenen adisyon yok.</p>') + '</section>';
   const prods = '<section class="card pad stack"><div class="card-head"><h2>Satılan ürünler</h2></div>' + ((D.products || []).length ? '<table class="legend-table"><tbody>' + D.products.map(p => '<tr><td>' + esc(p.name) + '</td><td class="r"><strong>' + nf0.format(p.qty) + '</strong> <span class="muted">' + esc(p.unit) + '</span></td><td class="r muted">' + TL(p.total) + '</td></tr>').join('') + '</tbody></table>' : '<p class="muted">Henüz satış yok.</p>') + '</section>';
@@ -550,7 +559,7 @@ function scDay() {
   const chips = [['all', 'Tümü', (D.rows || []).length], ['paid', 'Ödenen', D.paid], ['cancelled', 'İptal ve birleşen', D.cancelled + D.merged], ['open', 'Açık', D.open]].map(([k, l, n]) => '<button type="button" class="chip" data-act="day-filter" data-f="' + k + '" aria-pressed="' + (f === k) + '">' + l + ' (' + n + ')</button>').join('');
   const table = '<section class="card stack" style="padding:16px 0 4px;gap:12px"><div class="card-head" style="padding:0 18px"><h2>Adisyonlar</h2><div class="chips">' + chips + '</div></div>' +
     (rows.length ? '<div class="tablebox scrollbox"><table class="data"><thead><tr><th>No</th><th>Açılış</th><th>Kapanış</th><th>Masa</th><th>Garson</th><th>Durum</th><th>Ödeme</th><th class="r">Tutar</th></tr></thead><tbody>' +
-      rows.map(r => '<tr class="click' + (r.status === 'cancelled' ? ' muted-row' : '') + '" data-act="detail" data-no="' + r.no + '" tabindex="0"><td><strong>' + r.no + '</strong></td><td>' + hm(r.openedAt) + '</td><td>' + hm(r.closedAt) + '</td><td>Masa ' + r.table + '</td><td>' + esc(r.waiter) + '</td><td>' + statusPill(r) + '</td><td>' + (r.status === 'paid' ? '<span class="pm">' + ic(PAY_ICON[r.payment] || 'info', 18) + esc(r.paymentLabel || 'Belirtilmemiş') + '</span>' : '') + '</td><td class="r"><strong>' + TL(r.total) + '</strong></td></tr>').join('') +
+      rows.map(r => '<tr class="click' + (r.status === 'cancelled' ? ' muted-row' : '') + '" data-act="detail" data-no="' + r.no + '" tabindex="0"><td><strong>' + r.no + '</strong></td><td>' + hm(r.openedAt) + '</td><td>' + hm(r.closedAt) + '</td><td>Masa ' + r.table + '</td><td>' + esc(r.waiter) + '</td><td>' + statusPill(r) + '</td><td>' + (r.status === 'paid' ? '<span class="pm">' + ic(PAY_ICON[r.payment] || 'info', 18) + esc(r.paymentLabel || 'Belirtilmemiş') + '</span>' : '') + '</td><td class="r"><strong>' + TL(r.total) + '</strong>' + (r.discountPercent ? '<br><span class="muted small">%' + r.discountPercent + ' indirim</span>' : '') + '</td></tr>').join('') +
       dayTotals(rows, f, D) + '</tbody></table></div>' : '<p class="muted" style="padding:0 18px 14px">Bu filtrede adisyon yok.</p>') + '</section>';
   const cancels = (D.rows || []).filter(r => r.status === 'cancelled' && !r.mergedInto);
   const cancelCard = cancels.length ? '<section class="card stack" style="padding:16px 0 4px;gap:10px"><div class="card-head" style="padding:0 18px"><h2>İptaller</h2><span class="muted small">' + cancels.length + ' adisyon · ' + TL(D.cancelledTotal) + '</span></div><div class="tablebox"><table class="data"><thead><tr><th>No</th><th>Saat</th><th>Masa</th><th>Garson</th><th>Sebep</th><th class="r">Tutar</th></tr></thead><tbody>' +
@@ -593,7 +602,8 @@ async function showDetail(no) {
   if (!r) return;
   const d = r.data; const a = d.adisyon;
   const pills = statusPill({ status: a.status, mergedInto: a.mergedInto });
-  const lines = (a.lines || []).length ? '<table class="legend-table"><tbody>' + a.lines.map(l => '<tr><td><strong>' + esc(l.name) + '</strong><br><span class="muted">' + l.qty + ' ' + esc(l.unit) + ' × ' + TL(l.price) + '</span></td><td class="r"><strong>' + TL(l.qty * l.price) + '</strong></td></tr>').join('') + '<tr><td><strong>Toplam</strong>' + (d.vats || []).map(v => '<br><span class="muted">KDV %' + v.rate + ': ' + TL(v.vat) + '</span>').join('') + '</td><td class="r"><strong style="font-size:24px">' + TL(a.total) + '</strong></td></tr></tbody></table>' : '<p class="muted">Kalem yok.</p>';
+  const disc = a.discountPercent ? '<tr><td class="muted">Ara toplam</td><td class="r muted">' + TL(a.total + a.discountAmount) + '</td></tr><tr><td class="muted">İndirim (%' + a.discountPercent + ')</td><td class="r muted">−' + TL(a.discountAmount) + '</td></tr>' : '';
+  const lines = (a.lines || []).length ? '<table class="legend-table"><tbody>' + a.lines.map(l => '<tr><td><strong>' + esc(l.name) + '</strong><br><span class="muted">' + l.qty + ' ' + esc(l.unit) + ' × ' + TL(l.price) + '</span></td><td class="r"><strong>' + TL(l.qty * l.price) + '</strong></td></tr>').join('') + disc + '<tr><td><strong>Toplam</strong>' + (d.vats || []).map(v => '<br><span class="muted">KDV %' + v.rate + ': ' + TL(v.vat) + '</span>').join('') + '</td><td class="r"><strong style="font-size:24px">' + TL(a.total) + '</strong></td></tr></tbody></table>' : '<p class="muted">Kalem yok.</p>';
   const canChange = a.status === 'paid' && !d.dayClosed;
   const kv = '<dl class="kv"><dt>İş günü</dt><dd>' + esc(dateLong(a.businessDate)) + '</dd><dt>Masa · garson</dt><dd>Masa ' + a.table + ' · ' + esc(a.waiterName) + '</dd><dt>Açılış</dt><dd>' + esc(stampText(a.openedAt)) + '</dd>' +
     (a.printCount ? '<dt>Baskı</dt><dd>' + a.printCount + ' kez · son ' + esc(stampText(a.printedAt)) + (a.changed ? ' · <span style="color:var(--warn)">sonra değişti</span>' : '') + '</dd>' : '<dt>Baskı</dt><dd>Basılmadı</dd>') +
@@ -604,9 +614,60 @@ async function showDetail(no) {
   openModal({
     title: 'Adisyon No ' + a.no,
     wide: true,
-    body: '<div class="row">' + pills + (d.dayClosed ? '<span class="pill quiet">' + ic('lock', 15) + 'Gün kapatıldı</span>' : '') + '</div>' + kv + lines + hist,
-    actions: [{ label: 'Fiş önizlemesi', icon: 'eye', onClick: async () => { const p = await act('preview', { no: a.no }); if (p) showPreview(p.data.image, 'No ' + a.no + ' · fiş önizlemesi', 'Ödeme şekli fişte yer almaz.', () => showDetail(a.no)); } }, { label: 'Kapat', kind: 'btn-primary', onClick: () => closeModal() }]
+    body: '<div class="row">' + pills + (d.dayClosed ? '<span class="pill quiet">' + ic('lock', 15) + 'Gün kapatıldı</span>' : '') + '</div>' + kv +
+      (canChange ? '<div class="note info"><p><strong>Yanlış kapatıldıysa:</strong> “Düzeltmek için yeniden aç” adisyonu masaya geri getirir; adet düzeltilir, gerekirse tekrar basılır ve yeniden ödenir. “İptal et” hesabı tümüyle iptal eder. İkisi de yönetici şifresi ister ve işlem kaydına yazılır.</p></div>' : '') + lines + hist,
+    actions: [{ label: 'Fiş önizlemesi', icon: 'eye', onClick: async () => { const p = await act('preview', { no: a.no }); if (p) showPreview(p.data.image, 'No ' + a.no + ' · fiş önizlemesi', 'Ödeme şekli fişte yer almaz.', () => showDetail(a.no)); } }]
+      .concat(canChange ? [{ label: 'Düzeltmek için yeniden aç', icon: 'undo', onClick: () => reopenFlow(a) }, { label: 'İptal et', kind: 'btn-danger-quiet', icon: 'lock', onClick: () => cancelFlowFor(a, async () => { toast('No ' + a.no + ' iptal edildi.'); await loadDay(); }) }] : [])
+      .concat([{ label: 'Kapat', kind: 'btn-primary', onClick: () => closeModal() }])
   });
+}
+// Ödenmiş adisyonu düzeltmek için masaya geri açar (yönetici şifresi + sebep).
+function reopenFlow(a) {
+  const busy = new Set(S.open.map(o => o.table));
+  const free = []; for (let t = 1; t <= S.tables; t++) if (!busy.has(t)) free.push(t);
+  if (!free.length) { toast('Boş masa yok; önce bir masayı kapatın.', 'bad'); return; }
+  const def = busy.has(a.table) ? free[0] : a.table;
+  openModal({
+    title: 'No ' + a.no + ' yeniden açılsın mı?',
+    body: '<p>Adisyon ' + TL(a.total) + ' · ' + esc(payLabel(a.paymentMethod)) + ' olarak ödenmiş görünüyor. Yeniden açılınca ödeme kaydı kalkar; adisyon masada düzeltilip <strong>yeniden ödenir</strong>. Numarası ve açılış saati aynı kalır.</p>' +
+      '<div class="fields"><div class="field"><label for="reopen-reason">Sebep</label><input class="input" type="text" id="reopen-reason" placeholder="Örnek: 5 yerine 8 cağ yazılmış" maxlength="200" data-autofocus></div>' +
+      '<div class="field"><label for="reopen-table">Hangi masada açılsın?</label><select class="input" id="reopen-table">' + free.map(t => '<option value="' + t + '"' + (t === def ? ' selected' : '') + '>Masa ' + t + (t === a.table ? ' (kendi masası)' : '') + '</option>').join('') + '</select>' + (busy.has(a.table) ? '<p class="hint">Masa ' + a.table + ' şu an dolu; boş bir masa seçildi.</p>' : '') + '</div></div>',
+    actions: [{ label: 'Vazgeç', onClick: () => closeModal() }, { label: 'Yeniden aç', kind: 'btn-primary', icon: 'undo', onClick: async () => {
+      const reason = val('reopen-reason').trim();
+      if (!reason) { toast('Sebep yazın.', 'bad'); document.getElementById('reopen-reason').focus(); return; }
+      const table = Number(val('reopen-table'));
+      closeModal(true);
+      const r = await act('reopen', { no: a.no, table, reason });
+      if (!r) return;
+      toast('No ' + a.no + ' Masa ' + r.data.table + '’' + numSfx(r.data.table)[1].slice(0, -1) + ' yeniden açıldı; düzeltip yeniden ödeyin.', 'good');
+      go('siparis', r.data.table);
+      render();
+    } }]
+  });
+}
+// Yüzde indirim penceresi: hazır yüzdeler ya da elle; uygulamak yönetici şifresi ister.
+function discountFlow(t) {
+  const a = activeFor(t); if (!a) return;
+  const cur = a.discountPercent || 0;
+  const presets = (S.discountPresets || [5, 10, 15, 20, 25, 50]).map(p => '<button type="button" class="pay-btn disc-btn" data-act="discount-set" data-t="' + t + '" data-pct="' + p + '"' + (p === cur ? ' aria-pressed="true"' : '') + '><strong>%' + p + '</strong><span class="muted small">−' + TL(discountOf(a.lines.reduce((s, l) => s + l.price * l.qty, 0), p)) + '</span></button>').join('');
+  openModal({
+    title: 'No ' + a.no + ' · indirim',
+    body: '<p class="muted">İndirim adisyonun tamamına uygulanır, fişte “İndirim” satırı olarak çıkar ve gün sonunda ayrıca görünür.' + (S.discountNoPin ? '' : ' Uygulamak yönetici şifresi ister.') + '</p>' +
+      '<div class="pay-methods disc-grid">' + presets + '</div>' +
+      '<div class="row" style="align-items:flex-end"><div class="field" style="flex:0 1 200px"><label for="disc-pct">Başka yüzde</label><input class="input" id="disc-pct" inputmode="numeric" placeholder="1–100" maxlength="3"></div><button type="button" class="btn btn-primary" data-act="discount-custom" data-t="' + t + '">' + ic('percent', 20) + 'Uygula</button>' + (cur ? '<button type="button" class="btn btn-danger-quiet" data-act="discount-set" data-t="' + t + '" data-pct="0">İndirimi kaldır</button>' : '') + '</div>' +
+      '<p class="hint">%100 ikram demektir: toplam sıfır olur.</p>',
+    actions: [{ label: 'Vazgeç', onClick: () => closeModal() }]
+  });
+}
+async function setDiscount(t, pct) {
+  const a = activeFor(t); if (!a) return;
+  if (!(pct >= 0 && pct <= 100) || pct !== Math.floor(pct)) { toast('Yüzde 1 ile 100 arasında tam sayı olmalı.', 'bad'); return; }
+  closeModal(true);
+  const r = await act('discount', { no: a.no, percent: pct });
+  if (!r) return;
+  render();
+  const b = activeFor(t);
+  toast(pct ? 'No ' + a.no + ' · %' + pct + ' indirim · toplam ' + TL(b ? b.total : 0) : 'No ' + a.no + ' · indirim kaldırıldı', 'good');
 }
 function changePayFlow(no, cur) {
   const opts = (S.paymentMethods || []).map(m => '<button type="button" class="pay-btn" data-act="change-pay-to" data-no="' + no + '" data-m="' + esc(m.id) + '"' + (m.id === cur ? ' disabled' : '') + '>' + ic(PAY_ICON[m.id] || 'cash', 34, 1.8) + '<span>' + esc(m.label) + '</span>' + (m.id === cur ? '<span class="muted small">şu anki</span>' : '') + '</button>').join('');
@@ -631,7 +692,7 @@ function closeDayFlow() {
   if (S.sheets && S.sheets.enabled) sends.push('Google Sheets');
   openModal({
     title: dateLong(D.date) + ' kapatılsın mı?',
-    body: '<dl class="kv"><dt>Ciro</dt><dd>' + TL(D.revenue) + '</dd><dt>Ödenen adisyon</dt><dd>' + D.paid + '</dd><dt>İptal</dt><dd>' + D.cancelled + (D.cancelled ? ' · ' + TL(D.cancelledTotal) : '') + '</dd></dl>' +
+    body: '<dl class="kv"><dt>Ciro</dt><dd>' + TL(D.revenue) + '</dd><dt>Ödenen adisyon</dt><dd>' + D.paid + '</dd><dt>İptal</dt><dd>' + D.cancelled + (D.cancelled ? ' · ' + TL(D.cancelledTotal) : '') + '</dd>' + (D.discounts ? '<dt>İndirim</dt><dd>' + D.discounts + ' adisyon · −' + TL(D.discountTotal) + '</dd>' : '') + '</dl>' +
       ((D.warnings || []).length ? '<div class="note warn">' + ic('alert') + '<p>' + D.warnings.length + ' uyarı var; kapatmadan önce “Kontrol” bölümüne bakın.</p></div>' : '') +
       '<p>Kapatılan gün değiştirilemez. Kapanışta yedek alınır' + (sends.length ? '; özet ' + sends.join(' ve ') + ' ile gönderilir (internet yoksa sırada bekler)' : '') + '.</p>' +
       '<label class="switch-row" for="close-print"><span>Gün sonu fişini bas</span><input class="switch" type="checkbox" id="close-print" checked></label>',
@@ -783,7 +844,7 @@ function scStats() {
   const hours = hourItems(D.hours);
   const hourChart = card2('Saatlere göre yoğunluk', 'Masanın açıldığı saate göre adisyon sayısı', hours.length ? chartBox('st-hour', { kind: 'cols', fmt: 'n', items: hours }, 260) : empty('Bu dönemde satış yok.'));
   const waiters = card2('Garsonlar', 'Ödenen adisyonlar', (D.byWaiter || []).length ? '<table class="legend-table"><tbody>' + D.byWaiter.map(w => '<tr><td>' + ic('user', 18) + ' ' + esc(w.name) + '</td><td class="r muted">' + nf0.format(w.count) + ' adisyon</td><td class="r"><strong>' + TL(w.total) + '</strong></td><td class="r muted">ort. ' + TL(w.count ? Math.round(w.total / w.count) : 0) + '</td></tr>').join('') + '</tbody></table>' : '<p class="muted">Ödenen adisyon yok.</p>');
-  const extra = '<div class="status-line"><span>KDV toplamı <strong>' + TL(D.vat) + '</strong></span><span>Matrah <strong>' + TL(D.revenue.value - D.vat) + '</strong></span><span>İptal <strong>' + nf0.format(D.cancelled) + '</strong>' + (D.cancelled ? ' · ' + TL(D.cancelledTotal) : '') + '</span></div>';
+  const extra = '<div class="status-line"><span>KDV toplamı <strong>' + TL(D.vat) + '</strong></span><span>Matrah <strong>' + TL(D.revenue.value - D.vat) + '</strong></span><span>İptal <strong>' + nf0.format(D.cancelled) + '</strong>' + (D.cancelled ? ' · ' + TL(D.cancelledTotal) : '') + '</span>' + (D.discounts ? '<span>İndirim <strong>' + nf0.format(D.discounts) + '</strong> · −' + TL(D.discountTotal) + '</span>' : '') + '</div>';
   return head + statsControls() + kpis + extra +
     (trend ? '<div class="grid-2">' + trend + pay + '</div><div class="grid-2">' + prods + (one || hourChart) + '</div>' + (one ? '<div class="grid-2">' + hourChart + waiters + '</div>' : '<div class="grid-2">' + waiters + '</div>')
       : '<div class="grid-2">' + hourChart + pay + '</div><div class="grid-2">' + prods + waiters + '</div>') +
@@ -808,7 +869,7 @@ function dayTable(D) {
   const T = ui.stats; const sort = T.sort;
   // Uzun aralıklarda (ör. birkaç yıl) tablo aylara göre toplanır; binlerce satır ekranı yavaşlatır.
   const byMonth = D.days.length > 400;
-  const sums = ['revenue', 'count', 'cash', 'card', 'transfer', 'unknown', 'cancelled'];
+  const sums = ['revenue', 'count', 'cash', 'card', 'transfer', 'unknown', 'cancelled', 'discount'];
   let rows;
   if (byMonth) {
     const mi = {}; rows = [];
@@ -825,13 +886,14 @@ function dayTable(D) {
   const cols = [['date', byMonth ? 'Ay' : 'Tarih', 0], ['revenue', 'Ciro', 1], ['count', 'Adisyon', 1], ['avg', 'Ortalama', 1], ['cash', 'Nakit', 1], ['card', 'Kredi Kartı', 1], ['transfer', 'Havale', 1]];
   if (D.days.some(d => d.unknown)) cols.push(['unknown', 'Belirtilmemiş', 1]);
   cols.push(['cancelled', 'İptal', 1]);
+  if (D.days.some(d => d.discount)) cols.push(['discount', 'İndirim', 1]);
   D.products.forEach((p, j) => cols.push(['p' + j, p.name, 1]));
   if (D.products.length) cols.push(['qty', 'Toplam adet', 1]);
   const valOf = (r, k) => k === 'date' ? r.date : k === 'avg' ? (r.count ? r.revenue / r.count : 0) : k === 'qty' ? r.q.reduce((a, q) => a + (q || 0), 0) : /^p\d+$/.test(k) ? (r.q[Number(k.slice(1))] || 0) : (r[k] || 0);
   const hideEmpty = byMonth || T.mode === 'year';
   const idx = rows.map((r, i) => i).filter(i => !hideEmpty || rows[i].count || rows[i].cancelled);
   idx.sort((x, y) => { const a = valOf(rows[x], sort.key), b = valOf(rows[y], sort.key); return (a < b ? -1 : a > b ? 1 : 0) * sort.dir || (x - y); });
-  const money = new Set(['revenue', 'avg', 'cash', 'card', 'transfer', 'unknown']);
+  const money = new Set(['revenue', 'avg', 'cash', 'card', 'transfer', 'unknown', 'discount']);
   const cell = (k, v) => k === 'date' ? '' : money.has(k) ? TL(Math.round(v)) : nf0.format(v);
   const th = cols.map(([k, l, r]) => '<th' + (r ? ' class="r"' : '') + ' aria-sort="' + (sort.key === k ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none') + '"><button type="button" class="th-sort" data-act="st-sort" data-k="' + k + '">' + esc(l) + (sort.key === k ? ic(sort.dir > 0 ? 'up' : 'down', 16, 2.6) : '') + '</button></th>').join('');
   const first = r => byMonth ? (() => { const t = parseDay(r.date + '-01'); return esc(AY[t.getMonth()] + ' ' + t.getFullYear()); })()
@@ -1191,9 +1253,10 @@ function scSettings() {
       '<section class="card pad stack" aria-labelledby="rapor-h"><h2 id="rapor-h" class="sec-title">Raporlar</h2><div class="field"><label for="set-featured">Öne çıkan ürün</label><select class="input" id="set-featured">' + featOpts + '</select><p class="hint">İstatistikte “Satılan …” kartında, gün sonu fişinde ve WhatsApp mesajında bu ürünün adedi gösterilir.</p></div>' +
         '<div class="row"><button type="button" class="btn btn-md" data-act="open-folder" data-w="reports">' + ic('folder', 20) + 'Excel raporları klasörü</button></div></section>' +
       '<section class="card pad stack" aria-labelledby="gars-h"><div class="card-head"><h2 id="gars-h">Garsonlar</h2></div><p class="hint">Masa açılırken garson seçilir. Adı değiştirmek için kutuya yazın.</p><div>' + waiters + '</div><div class="row" style="flex-wrap:nowrap"><label class="sr" for="w-new">Yeni garson adı</label><input class="input" id="w-new" placeholder="Yeni garson adı" maxlength="30" autocomplete="off"><button type="button" class="btn btn-outline btn-md" data-act="w-add">' + ic('plus', 20) + 'Ekle</button></div></section>' +
-      '<section class="card pad stack" aria-labelledby="sifre-h"><h2 id="sifre-h" class="sec-title">Yönetici şifresi</h2><p class="hint">Şifre istenen ekranlar: Gün Sonu, İstatistik, Ürünler ve Ayarlar. Adisyon iptali, basılmış adisyondan ürün düşmek, basılmış adisyonu boşaltmak, ödeme şeklini değiştirmek ve yedekten geri yüklemek her seferinde ayrıca şifre ister.</p>' +
+      '<section class="card pad stack" aria-labelledby="sifre-h"><h2 id="sifre-h" class="sec-title">Yönetici şifresi</h2><p class="hint">Şifre istenen ekranlar: Gün Sonu, İstatistik, Ürünler ve Ayarlar. Adisyon iptali, basılmış adisyondan ürün düşmek, basılmış adisyonu boşaltmak, ödeme şeklini değiştirmek, ödenmiş adisyonu yeniden açmak ve yedekten geri yüklemek her seferinde ayrıca şifre ister.</p>' +
         '<div class="fields"><div class="field"><label for="pin-old">Mevcut şifre</label><input class="input" id="pin-old" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></div><div class="field"><label for="pin-new">Yeni şifre (4 rakam)</label><input class="input" id="pin-new" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></div><div class="field"><label for="pin-new2">Yeni şifre tekrar</label><input class="input" id="pin-new2" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></div></div>' +
-        '<div class="row"><button type="button" class="btn btn-outline btn-md" data-act="pin-save">Şifreyi değiştir</button><div class="field" style="flex-direction:row;align-items:center;gap:10px"><label for="set-lock">Kendiliğinden kilit</label><select class="input" id="set-lock" style="width:auto">' + [2, 5, 10, 15].map(m => '<option value="' + m + '"' + (S.lockMinutes === m ? ' selected' : '') + '>' + m + ' dk</option>').join('') + '</select></div></div></section>' +
+        '<div class="row"><button type="button" class="btn btn-outline btn-md" data-act="pin-save">Şifreyi değiştir</button><div class="field" style="flex-direction:row;align-items:center;gap:10px"><label for="set-lock">Kendiliğinden kilit</label><select class="input" id="set-lock" style="width:auto">' + [2, 5, 10, 15].map(m => '<option value="' + m + '"' + (S.lockMinutes === m ? ' selected' : '') + '>' + m + ' dk</option>').join('') + '</select></div></div>' +
+        '<label class="switch-row" for="set-disc-pin"><span>İndirim için yönetici şifresi istensin<br><span class="muted small">Kapalıysa garson şifresiz indirim uygulayabilir; her indirim yine işlem kaydına yazılır.</span></span><input class="switch" type="checkbox" id="set-disc-pin"' + (S.discountNoPin ? '' : ' checked') + '></label></section>' +
       '<section class="card pad stack" aria-labelledby="prog-h"><h2 id="prog-h" class="sec-title">Program</h2>' +
         '<label class="switch-row" for="set-fullscreen"><span>Açılışta tam ekran</span><input class="switch" type="checkbox" id="set-fullscreen"' + (pg.fullscreen ? ' checked' : '') + '></label>' +
         (pg.autostartSupported ? '<label class="switch-row" for="set-autostart"><span>Windows açılınca programı başlat</span><input class="switch" type="checkbox" id="set-autostart"' + (pg.autostart ? ' checked' : '') + '></label>' : '') +
@@ -1204,7 +1267,7 @@ function scSettings() {
 }
 function backupSection(bk) {
   return '<section class="card pad stack" aria-labelledby="yedek-h"><h2 id="yedek-h" class="sec-title">Yedek</h2>' +
-    '<div class="note good">' + ic('check', 22, 2.4) + '<p>Her işlem anında kaydedilir. Ayrıca açılışta, saatte bir, gün kapanınca ve program kapanırken otomatik yedek alınır; son 60 gün saklanır.</p></div>' +
+    '<div class="note good">' + ic('check', 22, 2.4) + '<p>Adisyonlar, günler ve istatistikler programın veritabanında <strong>süresiz</strong> saklanır; hiçbir kayıt kendiliğinden silinmez. Yedekler bu verinin kopyalarıdır: açılışta, saatte bir, gün kapanınca ve program kapanırken alınır; son 24 saatin ve son 90 günün kopyaları tutulur.</p></div>' +
     (bk.lastError ? '<div class="note bad">' + ic('alert') + '<p>Son yedek alınamadı: ' + esc(bk.lastError) + '</p></div>' : '') +
     '<dl class="kv"><dt>Yedek klasörü</dt><dd>' + esc(bk.dir) + '</dd><dt>Son yedek</dt><dd>' + esc(bk.lastAt || '—') + '</dd></dl>' +
     '<div class="row"><button type="button" class="btn btn-md" data-act="backup-now">' + ic('save', 20) + 'Şimdi yedekle</button><button type="button" class="btn btn-md" data-act="open-folder" data-w="backup">' + ic('folder', 20) + 'Klasörü aç</button><button type="button" class="btn btn-md btn-danger-quiet" data-act="restore-open">' + ic('history', 20) + 'Yedekten geri yükle</button></div>' +
@@ -1264,8 +1327,8 @@ function doPost(e) {
     if (veri.type !== 'gun_sonu') return yanit({ ok: false, error: 'Bilinmeyen veri.' });
     const tablo = SpreadsheetApp.getActiveSpreadsheet();
     const tarih = veri.gun.tarih;
-    yaz(tablo, 'Gün Sonu', ['Tarih', 'Kapanış', 'Ciro', 'KDV', 'Adisyon', 'Ortalama', 'İptal', 'İptal tutarı', 'Nakit', 'Kredi Kartı', 'Havale', 'Öne çıkan ürün', 'Adet', 'Garsonlar', 'Adisyon no'], [veri.gun.satir], tarih);
-    yaz(tablo, 'Adisyonlar', ['Tarih', 'No', 'Masa', 'Garson', 'Açılış', 'Kapanış', 'Durum', 'Ödeme şekli', 'Tutar', 'Baskı', 'Not'], veri.adisyonlar, tarih);
+    yaz(tablo, 'Gün Sonu', ['Tarih', 'Kapanış', 'Ciro', 'KDV', 'Adisyon', 'Ortalama', 'İptal', 'İptal tutarı', 'Nakit', 'Kredi Kartı', 'Havale', 'Öne çıkan ürün', 'Adet', 'Garsonlar', 'Adisyon no', 'İndirimli adisyon', 'İndirim tutarı'], [veri.gun.satir], tarih);
+    yaz(tablo, 'Adisyonlar', ['Tarih', 'No', 'Masa', 'Garson', 'Açılış', 'Kapanış', 'Durum', 'Ödeme şekli', 'Tutar', 'Baskı', 'Not', 'İndirim %', 'İndirim'], veri.adisyonlar, tarih);
     yaz(tablo, 'Ürünler', ['Tarih', 'Ürün', 'Adet', 'Birim', 'Tutar'], veri.urunler, tarih);
     return yanit({ ok: true });
   } catch (hata) {
@@ -1614,9 +1677,12 @@ async function moveTo(t, target) {
 }
 function cancelFlow(t) {
   const a = activeFor(t); if (!a) return;
+  cancelFlowFor(a, () => { toast('No ' + a.no + ' iptal edildi.'); ui.route = 'masalar'; ui.table = null; render(); });
+}
+function cancelFlowFor(a, after) {
   openModal({
     title: 'No ' + a.no + ' iptal edilsin mi?',
-    body: '<p>İptal edilen adisyon silinmez; numarası “İptal” olarak kayıtta kalır. Sebebi seçince yönetici şifresi sorulur.</p><fieldset class="reasons"><legend>Sebep</legend>' + REASONS.map((r, i) => '<label class="reason"><input type="radio" name="reason" value="' + esc(r) + '"' + (i === 0 ? ' checked data-autofocus' : '') + '><span>' + esc(r) + '</span></label>').join('') + '<label class="reason"><input type="radio" name="reason" value="__other"><span>Diğer</span></label><input class="input" type="text" id="reason-other" placeholder="Diğer sebebi yazın" aria-label="Diğer sebep" maxlength="200"></fieldset>',
+    body: '<p>İptal edilen adisyon silinmez; numarası “İptal” olarak kayıtta kalır.' + (a.status === 'paid' ? ' Hesap ' + TL(a.total) + ' · ' + esc(payLabel(a.paymentMethod)) + ' olarak ödenmiş görünüyor; iptal edilince ciroya girmez.' : '') + ' Sebebi seçince yönetici şifresi sorulur.</p><fieldset class="reasons"><legend>Sebep</legend>' + REASONS.map((r, i) => '<label class="reason"><input type="radio" name="reason" value="' + esc(r) + '"' + (i === 0 ? ' checked data-autofocus' : '') + '><span>' + esc(r) + '</span></label>').join('') + '<label class="reason"><input type="radio" name="reason" value="__other"><span>Diğer</span></label><input class="input" type="text" id="reason-other" placeholder="Diğer sebebi yazın" aria-label="Diğer sebep" maxlength="200"></fieldset>',
     actions: [{ label: 'Vazgeç', onClick: () => closeModal() }, { label: 'Adisyonu iptal et', kind: 'btn-danger', icon: 'x', onClick: async () => {
       const chosen = document.querySelector('input[name="reason"]:checked');
       const v = chosen ? chosen.value : '';
@@ -1625,8 +1691,7 @@ function cancelFlow(t) {
       closeModal(true);
       const r = await act('cancel', { no: a.no, reason });
       if (!r) return;
-      toast('No ' + a.no + ' iptal edildi.');
-      ui.route = 'masalar'; ui.table = null; render();
+      after();
     } }]
   });
 }
@@ -1719,6 +1784,10 @@ const ACT = {
     if (r) openModal({ title: 'Excel raporu kaydedildi', body: '<div class="note good">' + ic('check', 22, 2.4) + '<p>Rapor dosyası kaydedildi; klasörü açıldı.</p></div><dl class="kv"><dt>Dosya</dt><dd>' + esc(r.data.path) + '</dd></dl><p class="muted">Sayfalar: Özet, Günlük (gün × ürün adetleriyle), Ürünler, Adisyonlar.</p>', actions: [{ label: 'Klasörü aç', icon: 'folder', onClick: () => act('openFolder', { which: 'reports' }) }, { label: 'Tamam', kind: 'btn-primary', onClick: () => closeModal() }] });
   }),
   'cancel': el => cancelFlow(Number(el.dataset.t)),
+  'discount': el => discountFlow(Number(el.dataset.t)),
+  'discount-set': el => setDiscount(Number(el.dataset.t), Number(el.dataset.pct)),
+  'discount-custom': el => { const v = val('disc-pct').trim().replace('%', ''); if (!/^\d{1,3}$/.test(v)) { toast('Yüzde 1 ile 100 arasında tam sayı olmalı.', 'bad'); return; } setDiscount(Number(el.dataset.t), Number(v)); },
+  'discount-clear': el => setDiscount(Number(el.dataset.t), 0),
   'empty-close': el => once('empty-close', async () => { const t = Number(el.dataset.t); const a = activeFor(t); if (!a) return; if (await act('closeEmpty', { no: a.no })) { toast('Masa ' + t + ' boşaltıldı.'); ui.route = 'masalar'; ui.table = null; render(); } }),
   'change-waiter': el => {
     const t = Number(el.dataset.t); const a = activeFor(t); const d = ui.drafts[t];
@@ -1864,6 +1933,7 @@ document.addEventListener('change', async e => {
     case 'wa-enabled': { const r = await saveWhatsApp({ enabled: el.checked }); if (r) toast(el.checked ? 'Gün kapanınca WhatsApp mesajı gönderilecek.' : 'WhatsApp gönderimi kapatıldı.'); break; }
     case 'gs-enabled': { const r = await saveSheets({ enabled: el.checked }); if (r) toast(el.checked ? 'Gün kapanınca Google Sheets’e yazılacak.' : 'Google Sheets gönderimi kapatıldı.'); break; }
     case 'set-fullscreen': if (await act('saveSettings', { fullscreen: el.checked })) toast(el.checked ? 'Program tam ekran açılacak.' : 'Program pencere olarak açılacak.'); render(); break;
+    case 'set-disc-pin': if (await act('saveSettings', { discountNoPin: !el.checked })) toast(el.checked ? 'İndirim için yönetici şifresi istenecek.' : 'İndirim şifresiz uygulanabilecek.'); render(); break;
     case 'set-autostart': if (await act('setAutostart', { on: el.checked })) toast(el.checked ? 'Windows açılınca program başlayacak.' : 'Otomatik başlatma kapatıldı.'); render(); break;
   }
   if (el.name === 'set-vat') { if (await act('saveSettings', { defaultVat: Number(el.value) })) toast('Varsayılan KDV %' + el.value + ' oldu.'); render(); }

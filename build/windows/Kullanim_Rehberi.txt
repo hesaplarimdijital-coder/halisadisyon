@@ -1,4 +1,4 @@
-HALİS ADİSYON 2.0.0 · KISA KULLANIM REHBERİ
+HALİS ADİSYON 2.1.0 · KISA KULLANIM REHBERİ
 ============================================
 
 1. İLK AÇILIŞ
@@ -10,8 +10,10 @@ Program ilk açılışta 5 adımlı bir kurulum gösterir:
   4) 12 ürünün fiyatları (KDV dahil)
   5) Yönetici şifresi (4 rakam)
 Bu bilgilerin hepsi sonradan Ayarlar ve Ürünler ekranlarından değiştirilebilir.
-1.0.0 kuruluysa 2.0.0'ı üzerine kurun: masalar, adisyonlar, ürünler ve ayarlar
-aynen kalır; güncellemeden önce verilerin ayrıca yedeği alınır.
+Eski sürüm kuruluysa yenisini üzerine kurun: masalar, adisyonlar, ürünler ve
+ayarlar aynen kalır; güncellemeden önce verilerin ayrıca yedeği alınır.
+2.1.0'da gelenler: yüzde indirim, ödenmiş adisyonu düzeltme (yeniden açma) ve
+iptal, günlük yedeklerin 90 gün saklanması.
 
 
 2. YAZICI (KODDATA KPS80)
@@ -55,6 +57,20 @@ Ayarlar > Fiş bilgileri bölümünde sağda "Canlı önizleme" vardır: yazdık
     uyarır; "Adisyonu Bas"a basınca fiş çıkar ve pencere yeniden açılır.
   - Yanlış ödeme şekli seçildiyse yönetici Gün Sonu ekranında adisyona
     tıklayıp "Değiştir" ile düzeltir (şifre ister; gün kapatılmadan önce).
+  - "İndirim": anlaşmalı müşteri ya da ikram için adisyonun tamamına yüzde
+    indirim uygular (%5, %10, %15, %20, %25, %50 ya da elle; %100 ikramdır).
+    Yönetici şifresi ister (Ayarlar > Yönetici şifresi bölümünden kapatılabilir).
+    Fişte "Ara toplam", "İndirim (%10)" ve indirimli "TOPLAM" basılır; KDV
+    indirimli tutardan hesaplanır. İndirim ürün eklenince kendiliğinden yeni
+    toplama göre hesaplanır; "kaldır" ile şifresiz kaldırılır. Basılmış
+    adisyonda indirim değişirse fiş yeniden basılmalıdır (program uyarır).
+  - Hesap yanlış kapatıldıysa (ör. 5 yerine 8 cağ yazılıp ödendi yapıldı):
+    yönetici Gün Sonu ekranında adisyona tıklar. "Düzeltmek için yeniden aç"
+    adisyonu (sebep ve şifreyle) masaya geri getirir; adet düzeltilir,
+    gerekirse fiş tekrar basılır ve "Hesap Ödendi" ile yeniden kapatılır.
+    Numara ve açılış saati aynı kalır, ödeme kaydı yenilenir. Hesap tümüyle
+    yanlışsa "İptal et" kullanılır. Her ikisi de işlem kaydına yazılır ve
+    yalnız kapatılmamış günlerde yapılabilir.
   - "Masayı taşı": müşteri masa değiştirdiyse adisyonu boş bir masaya taşır.
     Dolu bir masa seçilirse iki adisyon birleşir: ürünler o masaya eklenir,
     taşınan adisyonun numarası "birleşti" olarak kayıtta kalır.
@@ -76,11 +92,12 @@ Gün Sonu ekranında:
     basıldıktan sonra iptal edilenler ve hâlâ açık masalar listelenir.
     Sorun yoksa yeşil "Eksik adisyon yok" yazar.
   - Ciro (KDV dahil), KDV, ödenen adisyon sayısı, ortalama adisyon, satılan
-    cağ, iptaller.
+    cağ, iptaller, yapılan indirimler (ciro indirim düşülmüş tutardır).
   - Ödeme şekilleri: Nakit, Kredi Kartı ve Havale toplamları (kasa sayımı için).
   - Garsonlara göre adisyon sayısı ve ciro; satılan ürün adetleri.
   - Günün tüm adisyonları (saat, masa, garson, durum, ödeme şekli, tutar).
-    Satıra tıklayınca adisyonun kalemleri ve işlem geçmişi açılır.
+    Satıra tıklayınca adisyonun kalemleri ve işlem geçmişi açılır; ödenmiş
+    adisyon buradan yeniden açılır ya da iptal edilir (bkz. bölüm 3).
   - "Gün sonu fişi bas": özet termal yazıcıdan çıkar (gün kapatılmadıysa
     "ara rapor" yazar). Bu fiş işletme içindir, müşteriye verilmez.
   - "Günü kapat": açık masa varsa gün kapanmaz. Kapatılan gün bir daha
@@ -122,8 +139,11 @@ taşıma, fiyat değişikliği, ayar) tarih ve türe göre süzerek gösterir.
 Gün Sonu, İstatistik, Ürünler ve Ayarlar şifre ister. 5 dakika işlem olmazsa
 kilit kendiliğinden kapanır (süre Ayarlar'dan değişir).
 Adisyon iptali, basılmış bir adisyondan ürün düşmek, basılmış adisyonun
-boşaltılması, ödeme şeklini değiştirmek ve yedekten geri yükleme her seferinde
-ayrıca şifre ister (yönetici girişi açık olsa bile).
+boşaltılması, ödeme şeklini değiştirmek, ödenmiş adisyonu yeniden açmak,
+indirim uygulamak ve yedekten geri yükleme her seferinde ayrıca şifre ister
+(yönetici girişi açık olsa bile). İndirim için şifre sorulması Ayarlar'daki
+"İndirim için yönetici şifresi istensin" anahtarıyla kapatılabilir; her indirim
+yine işlem kaydına yazılır.
 Basıldıktan sonra eklenen ürünler şifresiz azaltılabilir. Adisyon basıldıktan
 sonra "Geri Al" yalnızca baskıdan sonraki adımları geri alır. İptal edilen
 adisyon silinmez; sebebiyle birlikte kayıtta kalır.
@@ -142,10 +162,13 @@ hemen Ayarlar > Yönetici şifresi bölümünden yenisini belirleyin.
   - Yedekler: Belgeler\Halis Adisyon Yedekleri
               Açılıştan birkaç saniye sonra, saatte bir, gün kapatılınca ve
               program güç simgesiyle kapatılırken alınır.
-              Son 24 saatlik (saatlik klasörü), son 60 günlük (gunluk klasörü)
+              Son 24 saatlik (saatlik klasörü), son 90 günlük (gunluk klasörü)
               ve gün sonu ile geri yükleme öncesi yedekleri (ozel klasörü)
               saklanır. Yedekler sıkıştırılmış .zip dosyasıdır; içinde
               adisyon.db vardır.
+              Bu süreler yalnız yedek KOPYALARI içindir: adisyonlar, günler ve
+              istatistikler programın veritabanında süresiz kalır; 90 gün ya da
+              2 yıl öncesi de Gün Sonu ve İstatistik ekranlarından görülür.
   - Ayarlar > Yedek bölümünden ikinci bir yer (USB bellek) seçilebilir.
   - Google Drive: bilgisayara "Google Drive" (masaüstü) programını kurup oturum
     açın. Ayarlar > Yedek > "Google Drive klasörünü bul"a basıp çıkan klasörü

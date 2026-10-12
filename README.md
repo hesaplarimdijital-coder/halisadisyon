@@ -1,9 +1,16 @@
-# Halis Adisyon 2.0.0
+# Halis Adisyon 2.1.0
 
 Halis Erzurum Cağ Kebabı için Windows 11'de çalışan, internetsiz adisyon programı.
 Garson masayı açar, ürünlere tıklar, adisyonu Koddata KPS80 (80 mm termal, ESC/POS)
 yazıcıdan basar; müşteri ödeyince ödeme şeklini (Nakit, Kredi Kartı, Havale) seçip
 masayı kapatır. Yönetici gün sonunu alır, istatistikleri ve Excel raporunu görür.
+
+## 2.1.0'da gelenler
+
+- **Yüzde indirim:** sipariş ekranında "İndirim" (hazır yüzdeler ya da elle, %100 = ikram). Yönetici şifresi ister; Ayarlar'dan kapatılabilir (`discountNoPin`). İndirim adisyonun tamamına, KDV oranı başına yarım yukarı yuvarlanarak uygulanır; `total` ve `vat_total` indirimli tutardır (`discount_percent`, `discount_amount` sütunları, şema 3). Fişte "Ara toplam / İndirim (%x) / TOPLAM"; gün sonu, istatistik, Excel ve Sheets'te indirim toplamları.
+- **Ödenmiş adisyonu düzeltme:** Gün Sonu › adisyon ayrıntısında "Düzeltmek için yeniden aç" (`reopen`: sebep + şifre; adisyon masaya `printed`/`open` olarak döner, ödeme kaydı kalkar, numara aynı kalır) ve "İptal et" (ödenmiş adisyon için `cancel`). Yalnız kapatılmamış günlerde.
+- **Günlük yedekler 90 gün** saklanır (önceden 60). Veri süresizdir; Ayarlar'daki açıklama buna göre düzeltildi.
+- Üst çubuk uzun gün adlarında (Pazartesi, Çarşamba) alt satıra kaymıyor.
 
 ## 2.0.0'da gelenler (MVP 2, 3, 4)
 
@@ -41,7 +48,7 @@ masayı kapatır. Yönetici gün sonunu alır, istatistikleri ve Excel raporunu 
   - basılmış adisyonu boşaltmak
 - Anında kayıt (SQLite, WAL, synchronous=FULL); otomatik yedek:
   - açılışta, saatte bir ve kapanışta alınır, .zip olarak saklanır
-  - 24 saatlik ve 60 günlük yedek tutulur
+  - 24 saatlik ve 90 günlük yedek tutulur (veri süresiz; yedekler kopyadır)
   - isteğe bağlı USB'ye kopya
 - Kurulum sihirbazı (yönetici izni istemez), masaüstü simgesi, isteğe bağlı otomatik başlatma
 
@@ -114,14 +121,14 @@ Gerekenler:
 
 ```sh
 go test ./...
-VERSION=2.0.0 ./scripts/build-windows.sh   # dist/HalisAdisyon_Kurulum_2.0.0.exe
+VERSION=2.1.0 ./scripts/build-windows.sh   # dist/HalisAdisyon_Kurulum_2.1.0.exe
 ```
 
 Yalnızca exe için (Windows'ta da çalışır; simge ve manifest hazır `.syso` dosyasından gelir):
 
 ```sh
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
-  -ldflags "-H windowsgui -s -w -X main.version=2.0.0" -o HalisAdisyon.exe ./cmd/halisadisyon
+  -ldflags "-H windowsgui -s -w -X main.version=2.1.0" -o HalisAdisyon.exe ./cmd/halisadisyon
 ```
 
 `go.mod` içindeki `replace` satırları golang.org/x paketlerini GitHub aynalarından alır. Bunlar yalnızca golang.org'a erişimin kısıtlı olduğu ortamlar için gerekli; normal ortamda silinebilir.

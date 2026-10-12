@@ -18,7 +18,8 @@ import (
 
 // SchemaVersion programın beklediği şema sürümüdür.
 // 1: ilk sürüm (1.0.0) · 2: ödeme şekli, gün sonu, masa birleştirme, dış gönderim kuyruğu (2.0.0)
-const SchemaVersion = 2
+// 3: yüzde indirim (2.1.0)
+const SchemaVersion = 3
 
 // Store açık veritabanı bağlantısını tutar.
 type Store struct {
@@ -356,5 +357,11 @@ CREATE TABLE outbox (
 	last_error TEXT
 );
 CREATE INDEX outbox_pending ON outbox(status, next_at);
+`,
+	3: `
+-- Yüzde indirim: adisyonun tamamına uygulanır; tutar kuruş olarak saklanır,
+-- total ve vat_total indirim düşülmüş hallerdir.
+ALTER TABLE adisyons ADD COLUMN discount_percent INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE adisyons ADD COLUMN discount_amount INTEGER NOT NULL DEFAULT 0;
 `,
 }

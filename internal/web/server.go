@@ -372,6 +372,32 @@ func (s *Server) call(name string, body []byte) (any, *core.State, error) {
 		}
 		st, err := svc.Cancel(req.No, req.Reason, req.Pin)
 		return nil, st, err
+	case "discount":
+		req, err := decode[struct {
+			No      int64  `json:"no"`
+			Percent int    `json:"percent"`
+			Pin     string `json:"pin"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		st, err := svc.SetDiscount(req.No, req.Percent, req.Pin)
+		return nil, st, err
+	case "reopen":
+		req, err := decode[struct {
+			No     int64  `json:"no"`
+			Table  int    `json:"table"`
+			Reason string `json:"reason"`
+			Pin    string `json:"pin"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		st, table, err := svc.Reopen(req.No, req.Table, req.Reason, req.Pin)
+		if err != nil {
+			return nil, nil, err
+		}
+		return map[string]any{"table": table}, st, nil
 
 	// ---- yönetici ----
 	case "unlock":

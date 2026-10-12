@@ -14,6 +14,7 @@ func (s *Service) dayReport(ds *DaySummary) receipt.DayReport {
 	r := receipt.DayReport{
 		Printed: s.now(), Closed: ds.Closed, FirstNo: ds.FirstNo, LastNo: ds.LastNo,
 		Paid: ds.Paid, Cancelled: ds.Cancelled, CancelledTotal: ds.CancelledTotal, Merged: ds.Merged, Open: ds.Open,
+		Discounts: ds.Discounts, DiscountTotal: ds.DiscountTotal,
 		Revenue: ds.Revenue, Avg: ds.Avg,
 	}
 	if t, err := parseDate(ds.Date); err == nil {

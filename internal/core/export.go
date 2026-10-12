@@ -56,6 +56,8 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 	add(xlsx.Text("Matrah"), xlsx.Money(st.Revenue.Value-st.VAT))
 	add(xlsx.Text("İptal edilen adisyon"), xlsx.Int(int64(st.Cancelled)))
 	add(xlsx.Text("İptal tutarı"), xlsx.Money(st.CancelledTotal))
+	add(xlsx.Text("İndirimli adisyon"), xlsx.Int(int64(st.Discounts)))
+	add(xlsx.Text("Yapılan indirim"), xlsx.Money(st.DiscountTotal))
 	add()
 	add(xlsx.Header("Ödeme şekli"), xlsx.Header("Adisyon"), xlsx.Header("Tutar"), xlsx.Header("Pay"))
 	for _, p := range st.ByPayment {
@@ -89,8 +91,8 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 		head = append(head, xlsx.Header("Belirtilmemiş"))
 		gun.Widths = append(gun.Widths, 14)
 	}
-	head = append(head, xlsx.Header("İptal"), xlsx.Header("KDV"))
-	gun.Widths = append(gun.Widths, 7, 13)
+	head = append(head, xlsx.Header("İptal"), xlsx.Header("İndirim"), xlsx.Header("KDV"))
+	gun.Widths = append(gun.Widths, 7, 13, 13)
 	for _, p := range st.Products {
 		head = append(head, xlsx.Header(p.Name+" ("+p.Unit+")"))
 		w := float64(len([]rune(p.Name))+len([]rune(p.Unit))) + 4
@@ -113,7 +115,7 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 		if unknown {
 			row = append(row, xlsx.Money(d.Unknown))
 		}
-		row = append(row, xlsx.Int(int64(d.Cancelled)), xlsx.Money(d.VAT))
+		row = append(row, xlsx.Int(int64(d.Cancelled)), xlsx.Money(d.Discount), xlsx.Money(d.VAT))
 		var dayQty int64
 		for j := range st.Products {
 			q := 0
@@ -135,6 +137,7 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 		tot.Transfer += d.Transfer
 		tot.Unknown += d.Unknown
 		tot.Cancelled += d.Cancelled
+		tot.Discount += d.Discount
 		tot.VAT += d.VAT
 	}
 	gun.FilterLast = len(gun.Rows)
@@ -143,7 +146,7 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 	if unknown {
 		row = append(row, xlsx.MoneyBold(tot.Unknown))
 	}
-	row = append(row, xlsx.Cell{V: int64(tot.Cancelled), Style: xlsx.StyleIntBold}, xlsx.MoneyBold(tot.VAT))
+	row = append(row, xlsx.Cell{V: int64(tot.Cancelled), Style: xlsx.StyleIntBold}, xlsx.MoneyBold(tot.Discount), xlsx.MoneyBold(tot.VAT))
 	var allQty int64
 	for _, q := range colTot {
 		row = append(row, xlsx.Cell{V: q, Style: xlsx.StyleIntBold})
@@ -171,16 +174,16 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 	urun.Rows = append(urun.Rows, []xlsx.Cell{xlsx.Bold("Toplam"), xlsx.Empty(), {V: pq, Style: xlsx.StyleIntBold}, xlsx.MoneyBold(pt)})
 
 	// ---- Adisyonlar ----
-	ad := xlsx.Sheet{Name: "Adisyonlar", HeaderRow: 1, Widths: []float64{8, 12, 7, 14, 17, 17, 16, 14, 14, 12, 8, 34}}
+	ad := xlsx.Sheet{Name: "Adisyonlar", HeaderRow: 1, Widths: []float64{8, 12, 7, 14, 17, 17, 16, 14, 14, 10, 13, 12, 8, 34}}
 	ad.Rows = append(ad.Rows, []xlsx.Cell{xlsx.Header("No"), xlsx.Header("İş günü"), xlsx.Header("Masa"), xlsx.Header("Garson"),
 		xlsx.Header("Açılış"), xlsx.Header("Kapanış"), xlsx.Header("Durum"), xlsx.Header("Ödeme şekli"), xlsx.Header("Tutar"),
-		xlsx.Header("KDV"), xlsx.Header("Baskı"), xlsx.Header("Not")})
+		xlsx.Header("İndirim %"), xlsx.Header("İndirim"), xlsx.Header("KDV"), xlsx.Header("Baskı"), xlsx.Header("Not")})
 	for i := range list {
 		a := &list[i]
 		note := a.CancelReason
 		ad.Rows = append(ad.Rows, []xlsx.Cell{xlsx.Int(a.No), xlsx.Date(dateOf(a.BusinessDate)), xlsx.Int(int64(a.Table)), xlsx.Text(a.WaiterName),
 			xlsx.DateTime(localTime(a.OpenedAt)), xlsx.DateTime(localTime(a.ClosedAt)), xlsx.Text(statusText(a)), xlsx.Text(PaymentLabel(a.PaymentMethod)),
-			xlsx.Money(a.Total), xlsx.Money(a.VATTotal), xlsx.Int(int64(a.PrintCount)), xlsx.Text(note)})
+			xlsx.Money(a.Total), xlsx.Int(int64(a.DiscountPercent)), xlsx.Money(a.DiscountAmount), xlsx.Money(a.VATTotal), xlsx.Int(int64(a.PrintCount)), xlsx.Text(note)})
 	}
 	return []xlsx.Sheet{ozet, gun, urun, ad}
 }

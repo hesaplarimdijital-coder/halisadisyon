@@ -37,7 +37,8 @@ var AuditKinds = []struct {
 }
 
 var auditKindOf = map[string]string{
-	"iptal": "iptal", "bos_kapatildi": "iptal",
+	"iptal": "iptal", "bos_kapatildi": "iptal", "yeniden_acildi": "iptal",
+	"indirim": "odeme", "indirim_kaldirildi": "odeme",
 	"urun_eklendi": "fiyat", "urun_degisti": "fiyat", "toplu_fiyat": "fiyat", "toplu_zam": "fiyat",
 	"basildi": "baski", "basilamadi": "baski", "test_fisi": "baski", "gun_sonu_fisi": "baski",
 	"odendi": "odeme", "odeme_degisti": "odeme",
@@ -51,7 +52,8 @@ var auditKindOf = map[string]string{
 }
 
 var auditLabels = map[string]string{
-	"iptal": "İptal", "bos_kapatildi": "Boş masa kapatıldı",
+	"iptal": "İptal", "bos_kapatildi": "Boş masa kapatıldı", "yeniden_acildi": "Düzeltmek için yeniden açıldı",
+	"indirim": "İndirim uygulandı", "indirim_kaldirildi": "İndirim kaldırıldı",
 	"urun_eklendi": "Ürün eklendi", "urun_degisti": "Ürün değişti", "toplu_fiyat": "Toplu zam", "toplu_zam": "Toplu zam uygulandı",
 	"basildi": "Baskı", "basilamadi": "Baskı yapılamadı", "test_fisi": "Test fişi", "gun_sonu_fisi": "Gün sonu fişi",
 	"odendi": "Hesap ödendi", "odeme_degisti": "Ödeme şekli değişti",
@@ -129,7 +131,29 @@ func describeAudit(action string, no int64, d map[string]any) string {
 	case "geri_al":
 		return "Son kalem değişikliği geri alındı"
 	case "iptal":
-		return fmt.Sprintf("Sebep: %s · tutar %s · Masa %s", dStr(d, "sebep"), dMoney(d, "tutar"), dStr(d, "masa"))
+		t := fmt.Sprintf("Sebep: %s · tutar %s · Masa %s", dStr(d, "sebep"), dMoney(d, "tutar"), dStr(d, "masa"))
+		if dStr(d, "eski_durum") == StatusPaid {
+			t += " · ödenmişti"
+			if m := dStr(d, "eski_odeme"); m != "" {
+				t += " (" + PaymentLabel(m) + ")"
+			}
+		}
+		return t
+	case "yeniden_acildi":
+		t := fmt.Sprintf("Sebep: %s · %s", dStr(d, "sebep"), dMoney(d, "tutar"))
+		if m := dStr(d, "eski_odeme"); m != "" {
+			t += " · ödeme " + PaymentLabel(m) + " kaldırıldı"
+		}
+		if o, n := dStr(d, "eski_masa"), dStr(d, "masa"); o != n && o != "" {
+			t += fmt.Sprintf(" · Masa %s → Masa %s", o, n)
+		} else {
+			t += " · Masa " + n
+		}
+		return t
+	case "indirim":
+		return fmt.Sprintf("%%%s · %s indirim · toplam %s → %s", dStr(d, "yuzde"), dMoney(d, "tutar"), dMoney(d, "ara_toplam"), dMoney(d, "toplam"))
+	case "indirim_kaldirildi":
+		return fmt.Sprintf("%%%s indirim kaldırıldı · toplam %s", dStr(d, "eski_yuzde"), dMoney(d, "toplam"))
 	case "bos_kapatildi":
 		if b, _ := dNum(d, "baski"); b > 0 {
 			return fmt.Sprintf("Masa %s · basılmıştı (%d baskı), ürünler şifreyle silindi", dStr(d, "masa"), b)
@@ -383,7 +407,7 @@ func (s *Service) Detail(no int64) (*AdisyonDetail, error) {
 		return nil, err
 	}
 	d := &AdisyonDetail{Adisyon: a, History: []AuditRow{}}
-	d.VATs, _, _ = VATBreakdown(a.Lines)
+	d.VATs, _, _, _, _ = Breakdown(a.Lines, a.DiscountPercent)
 	if d.DayClosed, _, err = dayClosed(s.db, a.BusinessDate); err != nil {
 		return nil, err
 	}

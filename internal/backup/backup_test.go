@@ -75,7 +75,7 @@ func TestBackupRotationAndSecondDir(t *testing.T) {
 	m := New(st, filepath.Join(dir, "yedek"), func() []Target { return []Target{{Key: "usb", Dir: second}} }, nil)
 	cur := time.Date(2026, 8, 1, 10, 0, 0, 0, time.Local)
 	m.now = func() time.Time { return cur }
-	for i := 0; i < 24*70; i += 5 { // 70 gün boyunca 5 saatte bir
+	for i := 0; i < 24*100; i += 5 { // 100 gün boyunca 5 saatte bir
 		if err := m.Run("test"); err != nil {
 			t.Fatal(err)
 		}

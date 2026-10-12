@@ -81,8 +81,12 @@ type Adisyon struct {
 	// PaymentMethod ödenen adisyonun ödeme şeklidir: nakit, kart, havale.
 	PaymentMethod string `json:"paymentMethod,omitempty"`
 	// MergedInto birleştirilen (kapanan) adisyonun eklendiği adisyon numarasıdır.
-	MergedInto int64  `json:"mergedInto,omitempty"`
-	Lines      []Line `json:"lines"`
+	MergedInto int64 `json:"mergedInto,omitempty"`
+	// DiscountPercent adisyonun tamamına uygulanan yüzde indirimdir (0: yok);
+	// DiscountAmount bunun kuruş karşılığıdır. Total ve VATTotal indirim düşülmüş hallerdir.
+	DiscountPercent int    `json:"discountPercent"`
+	DiscountAmount  int64  `json:"discountAmount"`
+	Lines           []Line `json:"lines"`
 }
 
 func (a *Adisyon) active() bool { return a.Status == StatusOpen || a.Status == StatusPrinted }
@@ -118,6 +122,8 @@ type Settings struct {
 	FeaturedProductID int64            `json:"featuredProductId"`
 	WhatsApp          WhatsAppSettings `json:"whatsapp"`
 	Sheets            SheetsSettings   `json:"sheets"`
+	// DiscountNoPIN açıksa indirim yönetici şifresi istemez (varsayılan: ister).
+	DiscountNoPIN bool `json:"discountNoPin"`
 }
 
 // WhatsAppSettings gün sonu özetinin WhatsApp Business Platform (Cloud API) ile
@@ -221,6 +227,8 @@ type State struct {
 	FeaturedProductID int64           `json:"featuredProductId"`
 	WhatsApp          WhatsAppView    `json:"whatsapp"`
 	Sheets            SheetsView      `json:"sheets"`
+	DiscountNoPIN     bool            `json:"discountNoPin"`
+	DiscountPresets   []int           `json:"discountPresets"`
 }
 
 // WhatsAppView ayarlar ekranındaki WhatsApp bilgisidir (erişim anahtarı gönderilmez).

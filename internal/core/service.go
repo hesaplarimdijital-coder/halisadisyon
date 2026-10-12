@@ -432,13 +432,13 @@ func loadWaiters(q querier, activeOnly bool) ([]Waiter, error) {
 
 const adisyonCols = `no,business_date,table_no,COALESCE(waiter_id,0),waiter_name,status,opened_at,
 	COALESCE(printed_at,''),COALESCE(closed_at,''),print_count,changed,print_failed,COALESCE(cancel_reason,''),total,vat_total,
-	COALESCE(payment_method,''),COALESCE(merged_into,0)`
+	COALESCE(payment_method,''),COALESCE(merged_into,0),discount_percent,discount_amount`
 
 func scanAdisyon(sc interface{ Scan(...any) error }) (*Adisyon, error) {
 	var a Adisyon
 	err := sc.Scan(&a.No, &a.BusinessDate, &a.Table, &a.WaiterID, &a.WaiterName, &a.Status, &a.OpenedAt,
 		&a.PrintedAt, &a.ClosedAt, &a.PrintCount, &a.Changed, &a.PrintFailed, &a.CancelReason, &a.Total, &a.VATTotal,
-		&a.PaymentMethod, &a.MergedInto)
+		&a.PaymentMethod, &a.MergedInto, &a.DiscountPercent, &a.DiscountAmount)
 	if err != nil {
 		return nil, err
 	}
@@ -527,20 +527,35 @@ func nextNo(q querier) (int64, error) {
 	return n, err
 }
 
-// VATGroup bir KDV oranına düşen KDV dahil tutar ve içindeki KDV'dir.
+// VATGroup bir KDV oranına düşen KDV dahil (indirim düşülmüş) tutar, içindeki
+// KDV ve o orana düşen indirimdir.
 type VATGroup struct {
-	Rate  int   `json:"rate"`
-	Gross int64 `json:"gross"`
-	VAT   int64 `json:"vat"`
+	Rate     int   `json:"rate"`
+	Gross    int64 `json:"gross"`
+	VAT      int64 `json:"vat"`
+	Discount int64 `json:"discount,omitempty"`
 }
 
-// VATBreakdown kalemleri KDV oranına göre gruplar; KDV her oran için ayrı hesaplanır.
-func VATBreakdown(lines []Line) (groups []VATGroup, total, vat int64) {
+// discountOf tutarın yüzdesini kuruşa yuvarlar (yarım yukarı).
+func discountOf(gross int64, pct int) int64 {
+	if pct <= 0 || gross <= 0 {
+		return 0
+	}
+	if pct >= 100 {
+		return gross
+	}
+	return (gross*int64(pct) + 50) / 100
+}
+
+// Breakdown kalemleri KDV oranına göre gruplar; yüzde indirim her orana kendi
+// tutarı üzerinden uygulanır ve KDV indirimli tutardan hesaplanır. Böylece fiş,
+// gün sonu ve istatistik aynı kuruşları verir.
+func Breakdown(lines []Line, pct int) (groups []VATGroup, subtotal, discount, total, vat int64) {
 	by := map[int]int64{}
 	for _, l := range lines {
 		g := l.Price * int64(l.Qty)
 		by[l.VAT] += g
-		total += g
+		subtotal += g
 	}
 	rates := make([]int, 0, len(by))
 	for r := range by {
@@ -548,10 +563,20 @@ func VATBreakdown(lines []Line) (groups []VATGroup, total, vat int64) {
 	}
 	sort.Ints(rates)
 	for _, r := range rates {
-		v := money.VAT(by[r], r)
-		groups = append(groups, VATGroup{Rate: r, Gross: by[r], VAT: v})
+		d := discountOf(by[r], pct)
+		net := by[r] - d
+		v := money.VAT(net, r)
+		groups = append(groups, VATGroup{Rate: r, Gross: net, VAT: v, Discount: d})
+		discount += d
+		total += net
 		vat += v
 	}
+	return
+}
+
+// VATBreakdown indirimsiz döküm (eski çağıranlar için).
+func VATBreakdown(lines []Line) (groups []VATGroup, total, vat int64) {
+	groups, _, _, total, vat = Breakdown(lines, 0)
 	return
 }
 
@@ -560,8 +585,12 @@ func recalc(q querier, no int64) error {
 	if err != nil {
 		return err
 	}
-	_, total, vat := VATBreakdown(lines)
-	_, err = q.Exec(`UPDATE adisyons SET total=?, vat_total=? WHERE no=?`, total, vat, no)
+	var pct int
+	if err := q.QueryRow(`SELECT discount_percent FROM adisyons WHERE no=?`, no).Scan(&pct); err != nil {
+		return err
+	}
+	_, _, discount, total, vat := Breakdown(lines, pct)
+	_, err = q.Exec(`UPDATE adisyons SET total=?, vat_total=?, discount_amount=? WHERE no=?`, total, vat, discount, no)
 	return err
 }
 
@@ -652,6 +681,8 @@ func (s *Service) stateLocked() (*State, error) {
 		st.Notice = s.notice
 	}
 	st.FeaturedProductID = s.set.FeaturedProductID
+	st.DiscountNoPIN = s.set.DiscountNoPIN
+	st.DiscountPresets = DiscountPresets
 	wa := s.set.WhatsApp
 	st.WhatsApp = WhatsAppView{Enabled: wa.Enabled, PhoneNumberID: wa.PhoneNumberID, HasToken: wa.Token != "",
 		Template: wa.Template, Lang: wa.Lang, APIVersion: wa.APIVersion, Recipients: wa.Recipients}

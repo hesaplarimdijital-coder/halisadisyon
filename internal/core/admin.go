@@ -327,6 +327,8 @@ type SettingsPatch struct {
 	SecondBackupDir *string          `json:"secondBackupDir"`
 	DriveBackupDir  *string          `json:"driveBackupDir"`
 	Fullscreen      *bool            `json:"fullscreen"`
+	// DiscountNoPIN true: indirim yönetici şifresi istemez.
+	DiscountNoPIN *bool `json:"discountNoPin"`
 	// FeaturedProductID istatistikte ve gün sonu mesajında öne çıkan ürün (0: adı Cağ olan).
 	FeaturedProductID *int64         `json:"featuredProductId"`
 	WhatsApp          *WhatsAppPatch `json:"whatsapp"`
@@ -626,6 +628,11 @@ func (s *Service) SaveSettings(p SettingsPatch) (*State, error) {
 		diff("Açılışta tam ekran", onOff(ns.Fullscreen), onOff(*p.Fullscreen))
 		ns.Fullscreen = *p.Fullscreen
 		changed = append(changed, "tam ekran")
+	}
+	if p.DiscountNoPIN != nil {
+		diff("İndirimde yönetici şifresi", onOff(!ns.DiscountNoPIN), onOff(!*p.DiscountNoPIN))
+		ns.DiscountNoPIN = *p.DiscountNoPIN
+		changed = append(changed, "indirim şifresi")
 	}
 	if err := s.withTx(func(tx *sql.Tx) error {
 		if err := s.saveSettingsTx(tx, ns); err != nil {

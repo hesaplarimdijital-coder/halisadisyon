@@ -92,12 +92,15 @@ func sheetsPayload(ds *DaySummary) map[string]any {
 	if t, err := time.Parse(time.RFC3339, ds.ClosedAt); err == nil {
 		closed = t.Local().Format("02.01.2006 15:04")
 	}
+	// Sütunlar betikteki başlık sırasıyla aynıdır; yeni sütunlar sona eklenir
+	// (eski betikle yazılan tablolarda başlıksız kalır ama kaymaz).
 	gun := []any{ds.Date, closed, tlNum(ds.Revenue), tlNum(ds.VAT), ds.Paid, tlNum(ds.Avg), ds.Cancelled, tlNum(ds.CancelledTotal),
-		tlNum(pay[PayCash]), tlNum(pay[PayCard]), tlNum(pay[PayTransfer]), feat, featQty, strings.Join(ws, " · "), rng}
+		tlNum(pay[PayCash]), tlNum(pay[PayCard]), tlNum(pay[PayTransfer]), feat, featQty, strings.Join(ws, " · "), rng,
+		ds.Discounts, tlNum(ds.DiscountTotal)}
 	adisyonlar := [][]any{}
 	for _, r := range ds.Rows {
 		adisyonlar = append(adisyonlar, []any{ds.Date, r.No, r.Table, r.Waiter, clockOf(r.OpenedAt), clockOf(r.ClosedAt),
-			r.StatusText, r.PaymentLabel, tlNum(r.Total), r.PrintCount, r.CancelReason})
+			r.StatusText, r.PaymentLabel, tlNum(r.Total), r.PrintCount, r.CancelReason, r.DiscountPercent, tlNum(r.Discount)})
 	}
 	urunler := [][]any{}
 	for _, p := range ds.Products {

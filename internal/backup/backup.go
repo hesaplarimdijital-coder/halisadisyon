@@ -1,6 +1,6 @@
 // Package backup veritabanını kendiliğinden yedekler: açılışta, saatte bir,
 // gün sonunda ve kapanışta. Yedekler sıkıştırılmış .zip dosyasıdır (içinde
-// adisyon.db). Son 24 saatlik ve son 60 günlük yedek saklanır. İsteğe bağlı ek
+// adisyon.db). Son 24 saatlik ve son 90 günlük yedek saklanır. İsteğe bağlı ek
 // yerlere (USB bellek, Google Drive klasörü) günlük yedeğin kopyası yazılır.
 //
 // Yedek alınırken siparişler beklemez: veritabanı ayrı bir okuma bağlantısından
@@ -34,7 +34,7 @@ import (
 
 const (
 	keepHourly  = 24
-	keepDays    = 60
+	keepDays    = 90
 	keepSpecial = 90 // gün sonu ve geri yükleme öncesi kopyaları
 	secondName  = "Halis Adisyon Yedekleri"
 	zipEntry    = "adisyon.db"
@@ -52,7 +52,7 @@ const (
 type Target struct {
 	Key  string // "usb" | "drive"
 	Dir  string
-	Keep int // saklanacak günlük kopya sayısı (0: 60)
+	Keep int // saklanacak günlük kopya sayısı (0: 90)
 }
 
 // ExtraStatus ek yedek yerinin durumudur.

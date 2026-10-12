@@ -124,3 +124,114 @@ func (s *Service) Reopen(no int64, table int, reason, pin string) (*State, int, 
 	st, err := s.stateLocked()
 	return st, table, err
 }
+
+// SetComp kalemin adedinin bir kısmını ya da tümünü ikram yapar (ücret alınmaz)
+// ya da ikramı kaldırır. Kalem adisyonda ve fişte "İKRAM" olarak kalır, tutara
+// ve KDV'ye girmez. İkram yapmak indirimle aynı kuralla yönetici şifresi ister;
+// kaldırmak istemez. Kısmi ikramda kalem ikiye bölünür (ücretli ve ikram);
+// ikram kaldırılınca aynı ürünün ücretli kalemine geri eklenir.
+func (s *Service) SetComp(no, lineID int64, qty int, comp bool, pin string) (*State, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.inPrint[no] {
+		return nil, errBusy(no)
+	}
+	cur, err := loadActiveOrFail(s.db, no)
+	if err != nil {
+		return nil, err
+	}
+	var line *Line
+	for i := range cur.Lines {
+		if cur.Lines[i].ID == lineID {
+			line = &cur.Lines[i]
+		}
+	}
+	if line == nil {
+		return nil, uerr("not_found", "Kalem bulunamadı; ekran yenilendi.")
+	}
+	if line.Comp == comp {
+		return s.stateLocked()
+	}
+	if qty <= 0 || qty > line.Qty {
+		qty = line.Qty
+	}
+	if comp && !s.set.DiscountNoPIN {
+		if err := s.confirmPin(pin, "İkram yönetici şifresi ister."); err != nil {
+			return nil, err
+		}
+	}
+	err = s.withTx(func(tx *sql.Tx) error {
+		a, err := loadActiveOrFail(tx, no)
+		if err != nil {
+			return err
+		}
+		var l *Line
+		var other *Line // aynı ürünün karşı türdeki (ikram/ücretli) kalemi
+		for i := range a.Lines {
+			x := &a.Lines[i]
+			if x.ID == lineID {
+				l = x
+			} else if x.ProductID == line.ProductID && x.Price == line.Price && x.VAT == line.VAT && x.Name == line.Name && x.Comp == comp {
+				other = x
+			}
+		}
+		if l == nil || l.Comp != line.Comp || l.Qty < qty {
+			return uerr("changed", "Kalem bu arada değişti; ekran yenilendi.")
+		}
+		if qty == l.Qty {
+			// Kalemin tümü: varsa karşı kaleme katılır, yoksa kalemin türü değişir.
+			if other != nil {
+				if _, err := tx.Exec(`UPDATE adisyon_lines SET qty=qty+?, printed_qty=printed_qty+? WHERE id=?`, l.Qty, l.PrintedQty, other.ID); err != nil {
+					return err
+				}
+				if _, err := tx.Exec(`DELETE FROM adisyon_lines WHERE id=?`, l.ID); err != nil {
+					return err
+				}
+			} else if _, err := tx.Exec(`UPDATE adisyon_lines SET comp=? WHERE id=?`, comp, l.ID); err != nil {
+				return err
+			}
+		} else {
+			// Bir kısmı: kalem küçülür, ayrılan adet karşı kaleme gider (yoksa yeni kalem).
+			if _, err := tx.Exec(`UPDATE adisyon_lines SET qty=qty-? WHERE id=?`, qty, l.ID); err != nil {
+				return err
+			}
+			if other != nil {
+				if _, err := tx.Exec(`UPDATE adisyon_lines SET qty=qty+? WHERE id=?`, qty, other.ID); err != nil {
+					return err
+				}
+			} else {
+				var pos int
+				if err := tx.QueryRow(`SELECT COALESCE(MAX(pos),0)+1 FROM adisyon_lines WHERE adisyon_no=?`, no).Scan(&pos); err != nil {
+					return err
+				}
+				var pid sql.NullInt64
+				if l.ProductID > 0 {
+					pid = sql.NullInt64{Int64: l.ProductID, Valid: true}
+				}
+				if _, err := tx.Exec(`INSERT INTO adisyon_lines(adisyon_no,pos,product_id,name,unit,price,vat,qty,printed_qty,comp)
+					VALUES(?,?,?,?,?,?,?,?,0,?)`, no, pos, pid, l.Name, l.Unit, l.Price, l.VAT, qty, comp); err != nil {
+					return err
+				}
+			}
+		}
+		if a.Status == StatusPrinted {
+			if _, err := tx.Exec(`UPDATE adisyons SET changed=1 WHERE no=?`, no); err != nil {
+				return err
+			}
+		}
+		if err := recalc(tx, no); err != nil {
+			return err
+		}
+		action := "ikram"
+		if !comp {
+			action = "ikram_kaldirildi"
+		}
+		audit(tx, s.now(), action, no, map[string]any{"urun": l.Name, "adet": qty, "deger": l.Price * int64(qty), "masa": a.Table})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.pushUndo(no, cur.Lines)
+	return s.stateLocked()
+}

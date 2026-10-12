@@ -26,11 +26,12 @@ type Business struct {
 	Logo               image.Image
 }
 
-// Line adisyon kalemidir.
+// Line adisyon kalemidir. Comp (ikram) kalemler fişte görünür ama tutara girmez.
 type Line struct {
 	Name, Unit string
 	Qty        int
 	Price      int64 // birim fiyat, kuruş, KDV dahil
+	Comp       bool
 }
 
 // VATGroup bir KDV oranına düşen tutardır.
@@ -163,6 +164,11 @@ func RenderAdisyon(b Business, a Adisyon, width int) (*image.Gray, error) {
 	itemF := face(semibold, 27*sf)
 	subF := face(regular, 23*sf)
 	for _, l := range a.Lines {
+		if l.Comp {
+			c.row(l.Name, itemF, "İKRAM", itemF, 0, 0)
+			c.line(fmt.Sprintf("%d %s · ikram, ücret alınmaz", l.Qty, l.Unit), subF, left, 0, int(8*sf))
+			continue
+		}
 		c.row(l.Name, itemF, money.Format(l.Price*int64(l.Qty)), itemF, 0, 0)
 		c.line(fmt.Sprintf("%d %s × %s", l.Qty, l.Unit, money.Format(l.Price)), subF, left, 0, int(8*sf))
 	}

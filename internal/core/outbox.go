@@ -96,7 +96,7 @@ func sheetsPayload(ds *DaySummary) map[string]any {
 	// (eski betikle yazılan tablolarda başlıksız kalır ama kaymaz).
 	gun := []any{ds.Date, closed, tlNum(ds.Revenue), tlNum(ds.VAT), ds.Paid, tlNum(ds.Avg), ds.Cancelled, tlNum(ds.CancelledTotal),
 		tlNum(pay[PayCash]), tlNum(pay[PayCard]), tlNum(pay[PayTransfer]), feat, featQty, strings.Join(ws, " · "), rng,
-		ds.Discounts, tlNum(ds.DiscountTotal)}
+		ds.Discounts, tlNum(ds.DiscountTotal), ds.Comps, tlNum(ds.CompValue)}
 	adisyonlar := [][]any{}
 	for _, r := range ds.Rows {
 		adisyonlar = append(adisyonlar, []any{ds.Date, r.No, r.Table, r.Waiter, clockOf(r.OpenedAt), clockOf(r.ClosedAt),
@@ -104,7 +104,7 @@ func sheetsPayload(ds *DaySummary) map[string]any {
 	}
 	urunler := [][]any{}
 	for _, p := range ds.Products {
-		urunler = append(urunler, []any{ds.Date, p.Name, p.Qty, p.Unit, tlNum(p.Total)})
+		urunler = append(urunler, []any{ds.Date, p.Name, p.Qty, p.Unit, tlNum(p.Total), p.Comp})
 	}
 	return map[string]any{
 		"type":       "gun_sonu",

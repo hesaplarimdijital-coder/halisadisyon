@@ -383,6 +383,19 @@ func (s *Server) call(name string, body []byte) (any, *core.State, error) {
 		}
 		st, err := svc.SetDiscount(req.No, req.Percent, req.Pin)
 		return nil, st, err
+	case "comp":
+		req, err := decode[struct {
+			No     int64  `json:"no"`
+			LineID int64  `json:"lineId"`
+			Qty    int    `json:"qty"`
+			Comp   bool   `json:"comp"`
+			Pin    string `json:"pin"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		st, err := svc.SetComp(req.No, req.LineID, req.Qty, req.Comp, req.Pin)
+		return nil, st, err
 	case "reopen":
 		req, err := decode[struct {
 			No     int64  `json:"no"`

@@ -1,4 +1,4 @@
-HALİS ADİSYON 2.1.0 · KISA KULLANIM REHBERİ
+HALİS ADİSYON 2.2.0 · KISA KULLANIM REHBERİ
 ============================================
 
 1. İLK AÇILIŞ
@@ -13,7 +13,7 @@ Bu bilgilerin hepsi sonradan Ayarlar ve Ürünler ekranlarından değiştirilebi
 Eski sürüm kuruluysa yenisini üzerine kurun: masalar, adisyonlar, ürünler ve
 ayarlar aynen kalır; güncellemeden önce verilerin ayrıca yedeği alınır.
 2.1.0'da gelenler: yüzde indirim, ödenmiş adisyonu düzeltme (yeniden açma) ve
-iptal, günlük yedeklerin 90 gün saklanması.
+iptal, günlük yedeklerin 90 gün saklanması. 2.2.0: ikram kalemi.
 
 
 2. YAZICI (KODDATA KPS80)
@@ -64,6 +64,13 @@ Ayarlar > Fiş bilgileri bölümünde sağda "Canlı önizleme" vardır: yazdık
     indirimli tutardan hesaplanır. İndirim ürün eklenince kendiliğinden yeni
     toplama göre hesaplanır; "kaldır" ile şifresiz kaldırılır. Basılmış
     adisyonda indirim değişirse fiş yeniden basılmalıdır (program uyarır).
+  - İkram: kalemin yanındaki hediye simgesine basın. Birden fazla adet varsa
+    kaçının ikram olduğu sorulur (3 ayranın 1'i gibi); ikram edilen adet ayrı
+    bir kalem olur. İkram kalemi adisyonda ve fişte "İKRAM" olarak görünür,
+    ücreti alınmaz, toplama ve KDV'ye girmez. İndirimle aynı şifre kuralı
+    geçerlidir. Kaldırmak için ikram kalemindeki × simgesine basın; adet
+    ücretli kaleme geri katılır. Gün Sonu'nda ikram adedi ve liste fiyatıyla
+    değeri görünür; satılan ürün adetlerine ikramlar girmez.
   - Hesap yanlış kapatıldıysa (ör. 5 yerine 8 cağ yazılıp ödendi yapıldı):
     yönetici Gün Sonu ekranında adisyona tıklar. "Düzeltmek için yeniden aç"
     adisyonu (sebep ve şifreyle) masaya geri getirir; adet düzeltilir,
@@ -92,7 +99,8 @@ Gün Sonu ekranında:
     basıldıktan sonra iptal edilenler ve hâlâ açık masalar listelenir.
     Sorun yoksa yeşil "Eksik adisyon yok" yazar.
   - Ciro (KDV dahil), KDV, ödenen adisyon sayısı, ortalama adisyon, satılan
-    cağ, iptaller, yapılan indirimler (ciro indirim düşülmüş tutardır).
+    cağ, iptaller, yapılan indirimler (ciro indirim düşülmüş tutardır),
+    ikramlar (adet ve liste fiyatıyla değeri; ciroya girmez).
   - Ödeme şekilleri: Nakit, Kredi Kartı ve Havale toplamları (kasa sayımı için).
   - Garsonlara göre adisyon sayısı ve ciro; satılan ürün adetleri.
   - Günün tüm adisyonları (saat, masa, garson, durum, ödeme şekli, tutar).
@@ -140,10 +148,10 @@ Gün Sonu, İstatistik, Ürünler ve Ayarlar şifre ister. 5 dakika işlem olmaz
 kilit kendiliğinden kapanır (süre Ayarlar'dan değişir).
 Adisyon iptali, basılmış bir adisyondan ürün düşmek, basılmış adisyonun
 boşaltılması, ödeme şeklini değiştirmek, ödenmiş adisyonu yeniden açmak,
-indirim uygulamak ve yedekten geri yükleme her seferinde ayrıca şifre ister
-(yönetici girişi açık olsa bile). İndirim için şifre sorulması Ayarlar'daki
-"İndirim için yönetici şifresi istensin" anahtarıyla kapatılabilir; her indirim
-yine işlem kaydına yazılır.
+indirim ve ikram yapmak ve yedekten geri yükleme her seferinde ayrıca şifre
+ister (yönetici girişi açık olsa bile). İndirim ve ikram için şifre sorulması
+Ayarlar'daki "İndirim ve ikram için yönetici şifresi istensin" anahtarıyla
+kapatılabilir; her indirim ve ikram yine işlem kaydına yazılır.
 Basıldıktan sonra eklenen ürünler şifresiz azaltılabilir. Adisyon basıldıktan
 sonra "Geri Al" yalnızca baskıdan sonraki adımları geri alır. İptal edilen
 adisyon silinmez; sebebiyle birlikte kayıtta kalır.

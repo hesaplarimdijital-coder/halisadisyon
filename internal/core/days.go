@@ -103,8 +103,9 @@ type ProductQty struct {
 	ProductID int64  `json:"productId"`
 	Name      string `json:"name"`
 	Unit      string `json:"unit"`
-	Qty       int    `json:"qty"`
-	Total     int64  `json:"total"`
+	Qty       int    `json:"qty"`   // satılan adet (ikram hariç)
+	Total     int64  `json:"total"` // satılan tutar
+	Comp      int    `json:"comp,omitempty"` // ikram adedi
 }
 
 // DayRow gün sonu listesindeki bir adisyondur.
@@ -157,6 +158,8 @@ type DaySummary struct {
 	CancelledTotal int64         `json:"cancelledTotal"`
 	Discounts      int           `json:"discounts"`     // indirimli ödenen adisyon
 	DiscountTotal  int64         `json:"discountTotal"` // yapılan indirim toplamı
+	Comps          int           `json:"comps"`         // ikram edilen ürün adedi
+	CompValue      int64         `json:"compValue"`     // ikramların liste fiyatıyla değeri
 	ByPayment      []PayTotal    `json:"byPayment"`
 	ByWaiter       []WaiterTotal `json:"byWaiter"`
 	Products       []ProductQty  `json:"products"`
@@ -321,6 +324,9 @@ func (s *Service) daySummary(q querier, date string) (*DaySummary, error) {
 	if ds.VATs, err = vatTotals(q, `a.business_date=?`, date); err != nil {
 		return nil, err
 	}
+	if ds.Comps, ds.CompValue, err = compTotals(q, `a.business_date=?`, date); err != nil {
+		return nil, err
+	}
 
 	// Ürün adetleri (yalnız ödenen adisyonlar)
 	prods, err := productTotals(q, `a.business_date=?`, date)
@@ -379,7 +385,7 @@ func (s *Service) daySummary(q querier, date string) (*DaySummary, error) {
 // fişte olduğu gibi (adisyon içinde, oran başına, indirim düşülerek) hesaplanır.
 func vatTotals(q querier, where string, args ...any) ([]VATGroup, error) {
 	rows, err := q.Query(`SELECT l.vat, a.discount_percent, SUM(l.qty*l.price) FROM adisyon_lines l JOIN adisyons a ON a.no=l.adisyon_no
-		WHERE a.status='paid' AND `+where+` GROUP BY l.adisyon_no, l.vat`, args...)
+		WHERE a.status='paid' AND l.comp=0 AND `+where+` GROUP BY l.adisyon_no, l.vat`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -412,13 +418,24 @@ func vatTotals(q querier, where string, args ...any) ([]VATGroup, error) {
 	return out, nil
 }
 
+// compTotals ödenen adisyonlardaki ikramların adedini ve liste fiyatıyla değerini verir.
+func compTotals(q querier, where string, args ...any) (int, int64, error) {
+	var n int
+	var v int64
+	err := q.QueryRow(`SELECT COALESCE(SUM(l.qty),0), COALESCE(SUM(l.qty*l.price),0) FROM adisyon_lines l JOIN adisyons a ON a.no=l.adisyon_no
+		WHERE a.status='paid' AND l.comp=1 AND `+where, args...).Scan(&n, &v)
+	return n, v, err
+}
+
 // productTotals ödenen adisyonlardaki ürün adetlerini verir (çok satandan aza).
+// Satılan adet ve tutar ikram hariçtir; ikram adedi ayrıca verilir.
 func productTotals(q querier, where string, args ...any) ([]ProductQty, error) {
-	rows, err := q.Query(`SELECT COALESCE(l.product_id,0), MAX(l.name), MAX(l.unit), SUM(l.qty), SUM(l.qty*l.price)
+	rows, err := q.Query(`SELECT COALESCE(l.product_id,0), MAX(l.name), MAX(l.unit),
+		SUM(CASE WHEN l.comp=0 THEN l.qty ELSE 0 END), SUM(CASE WHEN l.comp=0 THEN l.qty*l.price ELSE 0 END), SUM(CASE WHEN l.comp=1 THEN l.qty ELSE 0 END)
 		FROM adisyon_lines l JOIN adisyons a ON a.no=l.adisyon_no
 		WHERE a.status='paid' AND `+where+`
 		GROUP BY COALESCE(l.product_id,0), CASE WHEN l.product_id IS NULL THEN l.name ELSE '' END
-		ORDER BY SUM(l.qty) DESC, MAX(l.name)`, args...)
+		ORDER BY SUM(CASE WHEN l.comp=0 THEN l.qty ELSE 0 END) DESC, MAX(l.name)`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -426,7 +443,7 @@ func productTotals(q querier, where string, args ...any) ([]ProductQty, error) {
 	out := []ProductQty{}
 	for rows.Next() {
 		var p ProductQty
-		if err := rows.Scan(&p.ProductID, &p.Name, &p.Unit, &p.Qty, &p.Total); err != nil {
+		if err := rows.Scan(&p.ProductID, &p.Name, &p.Unit, &p.Qty, &p.Total, &p.Comp); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

@@ -58,6 +58,8 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 	add(xlsx.Text("İptal tutarı"), xlsx.Money(st.CancelledTotal))
 	add(xlsx.Text("İndirimli adisyon"), xlsx.Int(int64(st.Discounts)))
 	add(xlsx.Text("Yapılan indirim"), xlsx.Money(st.DiscountTotal))
+	add(xlsx.Text("İkram (ürün adedi)"), xlsx.Int(int64(st.Comps)))
+	add(xlsx.Text("İkram değeri (liste fiyatıyla)"), xlsx.Money(st.CompValue))
 	add()
 	add(xlsx.Header("Ödeme şekli"), xlsx.Header("Adisyon"), xlsx.Header("Tutar"), xlsx.Header("Pay"))
 	for _, p := range st.ByPayment {
@@ -91,8 +93,8 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 		head = append(head, xlsx.Header("Belirtilmemiş"))
 		gun.Widths = append(gun.Widths, 14)
 	}
-	head = append(head, xlsx.Header("İptal"), xlsx.Header("İndirim"), xlsx.Header("KDV"))
-	gun.Widths = append(gun.Widths, 7, 13, 13)
+	head = append(head, xlsx.Header("İptal"), xlsx.Header("İndirim"), xlsx.Header("İkram"), xlsx.Header("KDV"))
+	gun.Widths = append(gun.Widths, 7, 13, 13, 13)
 	for _, p := range st.Products {
 		head = append(head, xlsx.Header(p.Name+" ("+p.Unit+")"))
 		w := float64(len([]rune(p.Name))+len([]rune(p.Unit))) + 4
@@ -115,7 +117,7 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 		if unknown {
 			row = append(row, xlsx.Money(d.Unknown))
 		}
-		row = append(row, xlsx.Int(int64(d.Cancelled)), xlsx.Money(d.Discount), xlsx.Money(d.VAT))
+		row = append(row, xlsx.Int(int64(d.Cancelled)), xlsx.Money(d.Discount), xlsx.Money(d.CompValue), xlsx.Money(d.VAT))
 		var dayQty int64
 		for j := range st.Products {
 			q := 0
@@ -138,6 +140,7 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 		tot.Unknown += d.Unknown
 		tot.Cancelled += d.Cancelled
 		tot.Discount += d.Discount
+		tot.CompValue += d.CompValue
 		tot.VAT += d.VAT
 	}
 	gun.FilterLast = len(gun.Rows)
@@ -146,7 +149,7 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 	if unknown {
 		row = append(row, xlsx.MoneyBold(tot.Unknown))
 	}
-	row = append(row, xlsx.Cell{V: int64(tot.Cancelled), Style: xlsx.StyleIntBold}, xlsx.MoneyBold(tot.Discount), xlsx.MoneyBold(tot.VAT))
+	row = append(row, xlsx.Cell{V: int64(tot.Cancelled), Style: xlsx.StyleIntBold}, xlsx.MoneyBold(tot.Discount), xlsx.MoneyBold(tot.CompValue), xlsx.MoneyBold(tot.VAT))
 	var allQty int64
 	for _, q := range colTot {
 		row = append(row, xlsx.Cell{V: q, Style: xlsx.StyleIntBold})
@@ -158,15 +161,15 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 	gun.Rows = append(gun.Rows, row)
 
 	// ---- Ürünler ----
-	urun := xlsx.Sheet{Name: "Ürünler", HeaderRow: 1, Widths: []float64{24, 11, 10, 16, 11}}
-	urun.Rows = append(urun.Rows, []xlsx.Cell{xlsx.Header("Ürün"), xlsx.Header("Birim"), xlsx.Header("Adet"), xlsx.Header("Tutar"), xlsx.Header("Ciro payı")})
+	urun := xlsx.Sheet{Name: "Ürünler", HeaderRow: 1, Widths: []float64{24, 11, 10, 16, 11, 11}}
+	urun.Rows = append(urun.Rows, []xlsx.Cell{xlsx.Header("Ürün"), xlsx.Header("Birim"), xlsx.Header("Adet"), xlsx.Header("Tutar"), xlsx.Header("Ciro payı"), xlsx.Header("İkram adet")})
 	var pq, pt int64
 	for _, p := range st.Products {
 		share := 0.0
 		if st.Revenue.Value > 0 {
 			share = float64(p.Total) / float64(st.Revenue.Value)
 		}
-		urun.Rows = append(urun.Rows, []xlsx.Cell{xlsx.Text(p.Name), xlsx.Text(p.Unit), xlsx.Int(int64(p.Qty)), xlsx.Money(p.Total), xlsx.Percent(share)})
+		urun.Rows = append(urun.Rows, []xlsx.Cell{xlsx.Text(p.Name), xlsx.Text(p.Unit), xlsx.Int(int64(p.Qty)), xlsx.Money(p.Total), xlsx.Percent(share), xlsx.Int(int64(p.Comp))})
 		pq += int64(p.Qty)
 		pt += p.Total
 	}

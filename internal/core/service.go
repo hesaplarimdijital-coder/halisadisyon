@@ -447,7 +447,7 @@ func scanAdisyon(sc interface{ Scan(...any) error }) (*Adisyon, error) {
 }
 
 func loadLines(q querier, no int64) ([]Line, error) {
-	rows, err := q.Query(`SELECT id,COALESCE(product_id,0),name,unit,price,vat,qty,printed_qty FROM adisyon_lines WHERE adisyon_no=? ORDER BY pos,id`, no)
+	rows, err := q.Query(`SELECT id,COALESCE(product_id,0),name,unit,price,vat,qty,printed_qty,comp FROM adisyon_lines WHERE adisyon_no=? ORDER BY pos,id`, no)
 	if err != nil {
 		return nil, err
 	}
@@ -455,7 +455,7 @@ func loadLines(q querier, no int64) ([]Line, error) {
 	out := []Line{}
 	for rows.Next() {
 		var l Line
-		if err := rows.Scan(&l.ID, &l.ProductID, &l.Name, &l.Unit, &l.Price, &l.VAT, &l.Qty, &l.PrintedQty); err != nil {
+		if err := rows.Scan(&l.ID, &l.ProductID, &l.Name, &l.Unit, &l.Price, &l.VAT, &l.Qty, &l.PrintedQty, &l.Comp); err != nil {
 			return nil, err
 		}
 		out = append(out, l)
@@ -549,10 +549,13 @@ func discountOf(gross int64, pct int) int64 {
 
 // Breakdown kalemleri KDV oranına göre gruplar; yüzde indirim her orana kendi
 // tutarı üzerinden uygulanır ve KDV indirimli tutardan hesaplanır. Böylece fiş,
-// gün sonu ve istatistik aynı kuruşları verir.
+// gün sonu ve istatistik aynı kuruşları verir. İkram kalemleri tutara girmez.
 func Breakdown(lines []Line, pct int) (groups []VATGroup, subtotal, discount, total, vat int64) {
 	by := map[int]int64{}
 	for _, l := range lines {
+		if l.Comp {
+			continue
+		}
 		g := l.Price * int64(l.Qty)
 		by[l.VAT] += g
 		subtotal += g

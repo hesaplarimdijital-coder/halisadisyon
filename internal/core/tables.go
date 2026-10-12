@@ -57,7 +57,7 @@ func (s *Service) MoveTable(no int64, target int) (*MoveResult, *State, error) {
 		for _, l := range src.Lines {
 			var lineID int64
 			for _, d := range dst.Lines {
-				if d.ProductID == l.ProductID && d.Price == l.Price && d.VAT == l.VAT && d.Name == l.Name {
+				if d.ProductID == l.ProductID && d.Price == l.Price && d.VAT == l.VAT && d.Name == l.Name && d.Comp == l.Comp {
 					lineID = d.ID
 				}
 			}
@@ -72,8 +72,8 @@ func (s *Service) MoveTable(no int64, target int) (*MoveResult, *State, error) {
 			if l.ProductID > 0 {
 				pid = sql.NullInt64{Int64: l.ProductID, Valid: true}
 			}
-			if _, err := tx.Exec(`INSERT INTO adisyon_lines(adisyon_no,pos,product_id,name,unit,price,vat,qty,printed_qty)
-				VALUES(?,?,?,?,?,?,?,?,?)`, dst.No, pos, pid, l.Name, l.Unit, l.Price, l.VAT, l.Qty, l.PrintedQty); err != nil {
+			if _, err := tx.Exec(`INSERT INTO adisyon_lines(adisyon_no,pos,product_id,name,unit,price,vat,qty,printed_qty,comp)
+				VALUES(?,?,?,?,?,?,?,?,?,?)`, dst.No, pos, pid, l.Name, l.Unit, l.Price, l.VAT, l.Qty, l.PrintedQty, l.Comp); err != nil {
 				return err
 			}
 		}

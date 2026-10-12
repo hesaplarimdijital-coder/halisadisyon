@@ -1,9 +1,13 @@
-# Halis Adisyon 2.1.0
+# Halis Adisyon 2.2.0
 
 Halis Erzurum Cağ Kebabı için Windows 11'de çalışan, internetsiz adisyon programı.
 Garson masayı açar, ürünlere tıklar, adisyonu Koddata KPS80 (80 mm termal, ESC/POS)
 yazıcıdan basar; müşteri ödeyince ödeme şeklini (Nakit, Kredi Kartı, Havale) seçip
 masayı kapatır. Yönetici gün sonunu alır, istatistikleri ve Excel raporunu görür.
+
+## 2.2.0'da gelenler
+
+- **İkram kalemi:** adisyondaki kalemin yanındaki hediye düğmesi; birden fazla adette kaçının ikram olduğu sorulur ve kalem ikiye bölünür (`adisyon_lines.comp`, şema 4). İkram kalemi adisyonda ve fişte "İKRAM" olarak görünür, tutara ve KDV'ye girmez; kaldırılınca ücretli kaleme geri katılır. İndirimle aynı şifre kuralı (`discountNoPin`). Gün sonu, istatistik, Excel ve Sheets'te ikram adedi ve liste fiyatıyla değeri; satılan ürün adetleri ikram hariçtir.
 
 ## 2.1.0'da gelenler
 
@@ -121,14 +125,14 @@ Gerekenler:
 
 ```sh
 go test ./...
-VERSION=2.1.0 ./scripts/build-windows.sh   # dist/HalisAdisyon_Kurulum_2.1.0.exe
+VERSION=2.2.0 ./scripts/build-windows.sh   # dist/HalisAdisyon_Kurulum_2.2.0.exe
 ```
 
 Yalnızca exe için (Windows'ta da çalışır; simge ve manifest hazır `.syso` dosyasından gelir):
 
 ```sh
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
-  -ldflags "-H windowsgui -s -w -X main.version=2.1.0" -o HalisAdisyon.exe ./cmd/halisadisyon
+  -ldflags "-H windowsgui -s -w -X main.version=2.2.0" -o HalisAdisyon.exe ./cmd/halisadisyon
 ```
 
 `go.mod` içindeki `replace` satırları golang.org/x paketlerini GitHub aynalarından alır. Bunlar yalnızca golang.org'a erişimin kısıtlı olduğu ortamlar için gerekli; normal ortamda silinebilir.

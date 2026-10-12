@@ -59,6 +59,8 @@ type Line struct {
 	Qty       int    `json:"qty"`
 	// PrintedQty son basılan adisyondaki adettir; altına inmek yönetici şifresi ister.
 	PrintedQty int `json:"printedQty"`
+	// Comp (ikram): kalem adisyonda ve fişte görünür, tutara ve KDV'ye girmez.
+	Comp bool `json:"comp"`
 }
 
 // Adisyon bir masanın hesabıdır.

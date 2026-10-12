@@ -18,8 +18,8 @@ import (
 
 // SchemaVersion programın beklediği şema sürümüdür.
 // 1: ilk sürüm (1.0.0) · 2: ödeme şekli, gün sonu, masa birleştirme, dış gönderim kuyruğu (2.0.0)
-// 3: yüzde indirim (2.1.0)
-const SchemaVersion = 3
+// 3: yüzde indirim (2.1.0) · 4: ikram kalemi (2.2.0)
+const SchemaVersion = 4
 
 // Store açık veritabanı bağlantısını tutar.
 type Store struct {
@@ -363,5 +363,9 @@ CREATE INDEX outbox_pending ON outbox(status, next_at);
 -- total ve vat_total indirim düşülmüş hallerdir.
 ALTER TABLE adisyons ADD COLUMN discount_percent INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE adisyons ADD COLUMN discount_amount INTEGER NOT NULL DEFAULT 0;
+`,
+	4: `
+-- İkram kalemi: adisyonda ve fişte görünür, tutara ve KDV'ye girmez.
+ALTER TABLE adisyon_lines ADD COLUMN comp INTEGER NOT NULL DEFAULT 0;
 `,
 }

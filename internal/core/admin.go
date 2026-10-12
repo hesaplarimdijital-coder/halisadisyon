@@ -630,9 +630,9 @@ func (s *Service) SaveSettings(p SettingsPatch) (*State, error) {
 		changed = append(changed, "tam ekran")
 	}
 	if p.DiscountNoPIN != nil {
-		diff("İndirimde yönetici şifresi", onOff(!ns.DiscountNoPIN), onOff(!*p.DiscountNoPIN))
+		diff("İndirim ve ikramda yönetici şifresi", onOff(!ns.DiscountNoPIN), onOff(!*p.DiscountNoPIN))
 		ns.DiscountNoPIN = *p.DiscountNoPIN
-		changed = append(changed, "indirim şifresi")
+		changed = append(changed, "indirim ve ikram şifresi")
 	}
 	if err := s.withTx(func(tx *sql.Tx) error {
 		if err := s.saveSettingsTx(tx, ns); err != nil {

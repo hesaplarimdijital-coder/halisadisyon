@@ -14,7 +14,7 @@ func (s *Service) dayReport(ds *DaySummary) receipt.DayReport {
 	r := receipt.DayReport{
 		Printed: s.now(), Closed: ds.Closed, FirstNo: ds.FirstNo, LastNo: ds.LastNo,
 		Paid: ds.Paid, Cancelled: ds.Cancelled, CancelledTotal: ds.CancelledTotal, Merged: ds.Merged, Open: ds.Open,
-		Discounts: ds.Discounts, DiscountTotal: ds.DiscountTotal,
+		Discounts: ds.Discounts, DiscountTotal: ds.DiscountTotal, Comps: ds.Comps, CompValue: ds.CompValue,
 		Revenue: ds.Revenue, Avg: ds.Avg,
 	}
 	if t, err := parseDate(ds.Date); err == nil {
@@ -35,7 +35,7 @@ func (s *Service) dayReport(ds *DaySummary) receipt.DayReport {
 		r.Waiters = append(r.Waiters, receipt.NameAmount{Name: w.Name, Count: w.Count, Total: w.Total})
 	}
 	for _, p := range ds.Products {
-		r.Products = append(r.Products, receipt.ProductLine{Name: p.Name, Unit: p.Unit, Qty: p.Qty, Total: p.Total})
+		r.Products = append(r.Products, receipt.ProductLine{Name: p.Name, Unit: p.Unit, Qty: p.Qty, Total: p.Total, Comp: p.Comp})
 	}
 	// Aynı türden uyarılar tek satırda: "Basılmadan kapatılan 7 adisyon: No 12, 15, …"
 	groups := map[string][]DayWarning{}

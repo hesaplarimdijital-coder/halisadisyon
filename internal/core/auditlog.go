@@ -38,7 +38,7 @@ var AuditKinds = []struct {
 
 var auditKindOf = map[string]string{
 	"iptal": "iptal", "bos_kapatildi": "iptal", "yeniden_acildi": "iptal",
-	"indirim": "odeme", "indirim_kaldirildi": "odeme",
+	"indirim": "odeme", "indirim_kaldirildi": "odeme", "ikram": "kalem", "ikram_kaldirildi": "kalem",
 	"urun_eklendi": "fiyat", "urun_degisti": "fiyat", "toplu_fiyat": "fiyat", "toplu_zam": "fiyat",
 	"basildi": "baski", "basilamadi": "baski", "test_fisi": "baski", "gun_sonu_fisi": "baski",
 	"odendi": "odeme", "odeme_degisti": "odeme",
@@ -53,7 +53,7 @@ var auditKindOf = map[string]string{
 
 var auditLabels = map[string]string{
 	"iptal": "İptal", "bos_kapatildi": "Boş masa kapatıldı", "yeniden_acildi": "Düzeltmek için yeniden açıldı",
-	"indirim": "İndirim uygulandı", "indirim_kaldirildi": "İndirim kaldırıldı",
+	"indirim": "İndirim uygulandı", "indirim_kaldirildi": "İndirim kaldırıldı", "ikram": "İkram", "ikram_kaldirildi": "İkram kaldırıldı",
 	"urun_eklendi": "Ürün eklendi", "urun_degisti": "Ürün değişti", "toplu_fiyat": "Toplu zam", "toplu_zam": "Toplu zam uygulandı",
 	"basildi": "Baskı", "basilamadi": "Baskı yapılamadı", "test_fisi": "Test fişi", "gun_sonu_fisi": "Gün sonu fişi",
 	"odendi": "Hesap ödendi", "odeme_degisti": "Ödeme şekli değişti",
@@ -154,6 +154,8 @@ func describeAudit(action string, no int64, d map[string]any) string {
 		return fmt.Sprintf("%%%s · %s indirim · toplam %s → %s", dStr(d, "yuzde"), dMoney(d, "tutar"), dMoney(d, "ara_toplam"), dMoney(d, "toplam"))
 	case "indirim_kaldirildi":
 		return fmt.Sprintf("%%%s indirim kaldırıldı · toplam %s", dStr(d, "eski_yuzde"), dMoney(d, "toplam"))
+	case "ikram", "ikram_kaldirildi":
+		return fmt.Sprintf("%s × %s · %s değerinde", dStr(d, "urun"), dStr(d, "adet"), dMoney(d, "deger"))
 	case "bos_kapatildi":
 		if b, _ := dNum(d, "baski"); b > 0 {
 			return fmt.Sprintf("Masa %s · basılmıştı (%d baskı), ürünler şifreyle silindi", dStr(d, "masa"), b)

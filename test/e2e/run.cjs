@@ -226,6 +226,29 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   await page.waitForSelector('.prods');
   await prod('Cağ').click(); await prod('Cağ').click();
   await until(() => (document.querySelector('.total-amount') || {}).textContent?.includes('680,00'));
+  // İkram: 2 ayran ekle, 1'ini ikram et (şifre); toplam değişmez, kalem bölünür
+  await prod('Ayran').click(); await prod('Ayran').click();
+  await until(() => (document.querySelector('.total-amount') || {}).textContent?.includes('780,00'));
+  await page.locator('.line', { hasText: 'Ayran' }).locator('[data-act="comp"]').click();
+  await page.waitForSelector('[data-act="comp-set"]');
+  await shot('12c_ikram_kaci');
+  await page.locator('[data-act="comp-set"][data-qty="1"]').click();
+  await page.waitForSelector('.keypad');
+  await page.keyboard.type('2468');
+  await until(() => !!document.querySelector('.line.comp'));
+  check('ikram kalemi ayrıldı ve toplama girmedi', await page.locator('.line.comp').count() === 1 && (await page.locator('.line.comp').textContent()).includes('İkram') && (await page.locator('.total-amount').textContent()).includes('730,00'));
+  // İkramı kaldır: ücretli kaleme geri katılır
+  await page.locator('.line.comp [data-act="comp"]').click();
+  await until(() => !document.querySelector('.line.comp'));
+  check('ikram kaldırılınca kalem birleşti', await page.locator('.line.comp').count() === 0 && await page.locator('.line').count() === 2 && (await page.locator('.total-amount').textContent()).includes('780,00'));
+  // Tek adet: ayranları 1'e düşür, ikram et; cağ toplamı 680 kalır
+  await page.locator('.line', { hasText: 'Ayran' }).locator('[data-d="-1"]').click();
+  await until(() => (document.querySelector('.total-amount') || {}).textContent?.includes('730,00'));
+  await page.locator('.line', { hasText: 'Ayran' }).locator('[data-act="comp"]').click();
+  await page.waitForSelector('.keypad');
+  await page.keyboard.type('2468');
+  await until(() => !!document.querySelector('.line.comp'));
+  check('tek adet ikram doğrudan uygulandı', await page.locator('.line.comp').count() === 1 && (await page.locator('.total-amount').textContent()).includes('680,00'));
   await click('[data-act="discount"]');
   await page.waitForSelector('.disc-grid');
   await shot('12d_indirim');
@@ -587,10 +610,12 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   await page.waitForSelector('.kpis');
   await until(() => !!document.querySelector('.kpis') && document.querySelector('.main').textContent.includes('İndirim'));
   check('gün sonunda indirim kartı', (await page.locator('.kpis').textContent()).includes('İndirim') && (await page.locator('.main').textContent()).includes('%25 indirim'));
+  check('gün sonunda ikram kartı ve üründe +1 ikram', (await page.locator('.kpis').textContent()).includes('İkram') && (await page.locator('section', { hasText: 'Satılan ürünler' }).first().textContent()).includes('+1 ikram'));
   const discNo = Number(await page.locator('tr.click', { hasText: 'Masa 13' }).first().getAttribute('data-no'));
   await page.locator(`tr.click[data-no="${discNo}"]`).first().click();
   await page.waitForSelector('.modal .hist');
   check('ayrıntıda indirim satırı', (await page.locator('.modal').textContent()).includes('İndirim (%25)'));
+  check('ayrıntıda ikram kalemi', (await page.locator('.modal .comp-pill').count()) === 1);
   await page.getByRole('button', { name: 'Düzeltmek için yeniden aç' }).click();
   await page.waitForSelector('#reopen-reason');
   await shot('23b_yeniden_ac');

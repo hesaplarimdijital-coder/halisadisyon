@@ -195,3 +195,127 @@ func TestReopenAndCancelPaid(t *testing.T) {
 		t.Fatalf("kapalı günde açıldı: %v", err)
 	}
 }
+
+// İkram: kalem adisyonda kalır, tutara ve KDV'ye girmez; kısmi ikram kalemi
+// böler, kaldırınca geri birleşir; gün sonu ve istatistikte ayrı sayılır.
+func TestCompLines(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	no := e.add(2, "Ayran")
+	e.add(2, "Ayran")
+	e.add(2, "Ayran") // 3 × 50,00
+	e.add(2, "Cağ")   // 340,00 → 490,00
+	a := e.adisyon(no)
+	ayran := a.Lines[0].ID
+	if _, err := e.svc.SetComp(no, ayran, 1, true, ""); code(err) != "pin_required" {
+		t.Fatalf("ikram şifresiz: %v", err)
+	}
+	if _, err := e.svc.SetComp(no, ayran, 1, true, "2468"); err != nil {
+		t.Fatal(err)
+	}
+	a = e.adisyon(no)
+	if len(a.Lines) != 3 || a.Total != 44000 || a.VATTotal != 4000 {
+		t.Fatalf("kısmi ikram: %d kalem, toplam %d, kdv %d", len(a.Lines), a.Total, a.VATTotal)
+	}
+	var comp, paid *Line
+	for i := range a.Lines {
+		if a.Lines[i].Name == "Ayran" {
+			if a.Lines[i].Comp {
+				comp = &a.Lines[i]
+			} else {
+				paid = &a.Lines[i]
+			}
+		}
+	}
+	if comp == nil || paid == nil || comp.Qty != 1 || paid.Qty != 2 {
+		t.Fatalf("bölme yanlış: %+v", a.Lines)
+	}
+	// Aynı ürünü eklemek ücretli kaleme gider, ikram kalemine değil.
+	e.add(2, "Ayran")
+	if a = e.adisyon(no); len(a.Lines) != 3 || a.Total != 49000 {
+		t.Fatalf("ürün ekleme ikrama karıştı: %+v", a.Lines)
+	}
+	// Bir adet daha ikram: var olan ikram kalemine katılır.
+	if _, err := e.svc.SetComp(no, paid.ID, 1, true, "2468"); err != nil {
+		t.Fatal(err)
+	}
+	if a = e.adisyon(no); len(a.Lines) != 3 || a.Total != 44000 {
+		t.Fatalf("ikrama katılma: %+v", a.Lines)
+	}
+	// Fiş önizlemesi çizilir; indirimle birlikte de tutar doğru.
+	if _, err := e.svc.SetDiscount(no, 10, "2468"); err != nil {
+		t.Fatal(err)
+	}
+	if a = e.adisyon(no); a.Total != 39600 || a.DiscountAmount != 4400 {
+		t.Fatalf("ikram + indirim: %+v", a)
+	}
+	if p, err := e.svc.Preview(no); err != nil || !strings.HasPrefix(p, "data:image/png") {
+		t.Fatalf("önizleme: %v", err)
+	}
+	// Geri al son ikramı geri getirir.
+	if _, err := e.svc.Undo(no); err != nil {
+		t.Fatal(err)
+	}
+	if a = e.adisyon(no); a.Total != 44100 { // 3 ücretli ayran (150) + cağ (340) = 490 → %10 → 441
+		t.Fatalf("geri al: %+v", a)
+	}
+	// İkramı kaldır: ücretli kaleme geri katılır, şifre istemez.
+	a = e.adisyon(no)
+	for _, l := range a.Lines {
+		if l.Comp {
+			comp = &Line{ID: l.ID}
+		}
+	}
+	if _, err := e.svc.SetComp(no, comp.ID, 0, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if a = e.adisyon(no); len(a.Lines) != 2 || a.Lines[0].Qty != 4 || a.Total != 48600 { // 4 ayran + cağ = 540 → %10 → 486
+		t.Fatalf("ikram kaldırma: %+v %d", a.Lines, a.Total)
+	}
+	// Basılmış adisyonda ikram “tekrar bas” uyarısı verir; ödeme ve gün sonu.
+	e.print(no)
+	for _, l := range a.Lines {
+		if l.Name == "Cağ" {
+			if _, err := e.svc.SetComp(no, l.ID, 1, true, "2468"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if a = e.adisyon(no); !a.Changed || a.Total != 20000-2000 {
+		t.Fatalf("cağ ikram: changed=%v toplam %d", a.Changed, a.Total)
+	}
+	e.pay(no, PayCash)
+	e.unlock()
+	ds, err := e.svc.DaySummary("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ds.Comps != 1 || ds.CompValue != 34000 || ds.Revenue != 18000 {
+		t.Fatalf("gün sonu ikram: %d %d ciro %d", ds.Comps, ds.CompValue, ds.Revenue)
+	}
+	for _, p := range ds.Products {
+		if p.Name == "Cağ" && (p.Qty != 0 || p.Comp != 1 || p.Total != 0) {
+			t.Fatalf("ürün ikram sayımı: %+v", p)
+		}
+		if p.Name == "Ayran" && (p.Qty != 4 || p.Comp != 0) {
+			t.Fatalf("ayran sayımı: %+v", p)
+		}
+	}
+	if ds.Featured == nil || ds.Featured.Qty != 0 || ds.Featured.Comp != 1 {
+		t.Fatalf("öne çıkan ürün ikram: %+v", ds.Featured)
+	}
+	st, err := e.svc.Stats(StatsQuery{Mode: "day"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Comps != 1 || st.CompValue != 34000 || st.Days[0].CompValue != 34000 || st.Featured.Value != 0 {
+		t.Fatalf("istatistik ikram: %+v", st)
+	}
+	var vatSum int64
+	for _, v := range ds.VATs {
+		vatSum += v.VAT
+	}
+	if vatSum != ds.VAT {
+		t.Fatalf("KDV: %d / %d", vatSum, ds.VAT)
+	}
+}

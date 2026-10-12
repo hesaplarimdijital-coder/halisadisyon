@@ -114,7 +114,7 @@ func (s *Service) AddItem(table int, productID, waiterID int64) (*State, int64, 
 		}
 		var lineID int64
 		for _, l := range a.Lines {
-			if l.ProductID == p.ID && l.Price == p.Price && l.VAT == vat {
+			if l.ProductID == p.ID && l.Price == p.Price && l.VAT == vat && !l.Comp {
 				lineID = l.ID
 			}
 		}
@@ -243,8 +243,8 @@ func (s *Service) Undo(no int64) (*State, error) {
 			if l.ProductID > 0 {
 				pid = sql.NullInt64{Int64: l.ProductID, Valid: true}
 			}
-			if _, err := tx.Exec(`INSERT INTO adisyon_lines(adisyon_no,pos,product_id,name,unit,price,vat,qty,printed_qty)
-				VALUES(?,?,?,?,?,?,?,?,?)`, no, i+1, pid, l.Name, l.Unit, l.Price, l.VAT, l.Qty, l.PrintedQty); err != nil {
+			if _, err := tx.Exec(`INSERT INTO adisyon_lines(adisyon_no,pos,product_id,name,unit,price,vat,qty,printed_qty,comp)
+				VALUES(?,?,?,?,?,?,?,?,?,?)`, no, i+1, pid, l.Name, l.Unit, l.Price, l.VAT, l.Qty, l.PrintedQty, l.Comp); err != nil {
 				return err
 			}
 		}

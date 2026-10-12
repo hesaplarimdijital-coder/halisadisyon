@@ -207,6 +207,12 @@ p { margin: 0; }
 .stepper { display: flex; align-items: center; gap: 6px; flex: none; }
 .qtybtn { width: 64px; height: 64px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); cursor: pointer; }
 .qtybtn:hover { background: var(--surface-2); }
+.linkish.gift { display: inline-flex; align-items: center; gap: 4px; min-height: 40px; padding: 0 6px; margin-left: 6px; font-size: 16px; font-weight: 700; text-decoration: none; border: 1px solid var(--line-2); border-radius: 8px; color: var(--accent-text); background: var(--surface); }
+.line.comp .linkish.gift { color: var(--ink-2); }
+/* Dar adisyonda yalnız simge: alt satıra sarkıp kalemi uzatmasın. */
+@container ticket (max-width: 470px) { .linkish.gift .t { display: none; } .linkish.gift { padding: 0 8px; } }
+.line.comp .line-total s { color: var(--ink-3, var(--ink-2)); font-weight: 500; margin-right: 6px; }
+.comp-pill { font-size: 14px; padding: 1px 8px; vertical-align: middle; }
 .qty { min-width: 40px; text-align: center; font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .empty { padding: 26px 16px; border: 2px dashed var(--line); border-radius: 14px; text-align: center; color: var(--ink-2); font-size: 19px; }
 .totals { display: flex; flex-direction: column; gap: 2px; }

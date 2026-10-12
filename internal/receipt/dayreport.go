@@ -19,8 +19,9 @@ type NameAmount struct {
 // ProductLine gün sonu fişindeki ürün satırıdır.
 type ProductLine struct {
 	Name, Unit string
-	Qty        int
+	Qty        int // satılan adet
 	Total      int64
+	Comp       int // ikram adedi
 }
 
 // DayReport gün sonu fişidir. İşletme içi rapordur, müşteriye verilmez.
@@ -36,6 +37,8 @@ type DayReport struct {
 	CancelledTotal int64
 	Discounts      int   // indirimli ödenen adisyon sayısı
 	DiscountTotal  int64 // yapılan indirim toplamı (kuruş)
+	Comps          int   // ikram edilen ürün adedi
+	CompValue      int64 // ikramların liste fiyatıyla değeri
 	Merged         int
 	Open           int
 	Revenue        int64
@@ -95,6 +98,9 @@ func RenderDaySummary(b Business, d DayReport, width int) (*image.Gray, error) {
 	if d.Discounts > 0 {
 		c.row("İndirimli adisyon", f, fmt.Sprintf("%d · −%s", d.Discounts, money.Format(d.DiscountTotal)), fb, 0, int(3*sf))
 	}
+	if d.Comps > 0 {
+		c.row("İkram", f, fmt.Sprintf("%d ürün · %s", d.Comps, money.Format(d.CompValue)), fb, 0, int(3*sf))
+	}
 	if d.Merged > 0 {
 		c.row("Birleştirilen masa", f, fmt.Sprint(d.Merged), fb, 0, int(3*sf))
 	}
@@ -135,7 +141,11 @@ func RenderDaySummary(b Business, d DayReport, width int) (*image.Gray, error) {
 	if len(d.Products) > 0 {
 		section("SATILAN ÜRÜNLER")
 		for _, p := range d.Products {
-			c.row(fmt.Sprintf("%s · %d %s", p.Name, p.Qty, p.Unit), fb, money.Format(p.Total), f, 0, int(3*sf))
+			label := fmt.Sprintf("%s · %d %s", p.Name, p.Qty, p.Unit)
+			if p.Comp > 0 {
+				label += fmt.Sprintf(" (+%d ikram)", p.Comp)
+			}
+			c.row(label, fb, money.Format(p.Total), f, 0, int(3*sf))
 		}
 	}
 	if len(d.Warnings) > 0 {

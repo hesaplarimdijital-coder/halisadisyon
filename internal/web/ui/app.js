@@ -85,6 +85,7 @@ const ICONS = {
   card: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/>',
   bank: '<path d="M3 10l9-6 9 6M5 10v8M10 10v8M14 10v8M19 10v8M3 20h18"/>',
   move: '<path d="M7 7h13M16 3l4 4-4 4"/><path d="M17 17H4M8 13l-4 4 4 4"/>',
+  gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v8h14v-8M12 8v12"/><path d="M12 8c-2-3-6-3-6-1s3 1 6 1zm0 0c2-3 6-3 6-1s-3 1-6 1z"/>',
   percent: '<path d="M19 5L5 19"/><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="17" r="2.5"/>',
   history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 3"/>',
   download: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
@@ -139,7 +140,7 @@ const discountOf = (gross, pct) => !(pct > 0) || gross <= 0 ? 0 : pct >= 100 ? g
 const vatOf = (gross, r) => gross <= 0 || r <= 0 ? 0 : Math.floor((gross * r * 2 + (100 + r)) / (2 * (100 + r)));
 function vatBreakdown(lines, pct) {
   const by = {};
-  for (const l of lines) by[l.vat] = (by[l.vat] || 0) + l.price * l.qty;
+  for (const l of lines) { if (l.comp) continue; by[l.vat] = (by[l.vat] || 0) + l.price * l.qty; }
   return Object.keys(by).map(Number).sort((a, b) => a - b).map(r => { const d = discountOf(by[r], pct || 0); return { rate: r, gross: by[r] - d, discount: d, vat: vatOf(by[r] - d, r) }; });
 }
 
@@ -438,7 +439,7 @@ function scOrder(t) {
   const lines = a ? a.lines : [];
   const waiter = a ? a.waiterName : waiterName(d.waiterId);
   const opened = a ? a.openedAt : d.openedAt;
-  const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
+  const subtotal = lines.reduce((s, l) => s + (l.comp ? 0 : l.price * l.qty), 0);
   const pct = a ? (a.discountPercent || 0) : 0;
   const kd = vatBreakdown(lines, pct);
   const discount = kd.reduce((s, k) => s + k.discount, 0);
@@ -472,8 +473,8 @@ function scOrder(t) {
   const ticketSub = '<span class="ticket-sub">' + (printedOK ? '<span class="ok">' + ic('check', 18, 2.6) + (a.printCount > 1 ? a.printCount + '. baskı ' : 'Basıldı ') + hm(a.printedAt) + '</span><span aria-hidden="true">·</span>' : '') + lines.length + ' kalem</span>';
 
   const lineHTML = lines.length ? '<ul class="lines" data-t="' + t + '">' + lines.map(l =>
-    '<li class="line"><div class="line-top"><span class="line-name">' + esc(l.name) + '</span><span class="line-total">' + TL(l.price * l.qty) + '</span></div>' +
-    '<div class="line-bottom"><span class="line-sub">' + TL(l.price) + ' × ' + l.qty + ' ' + esc(l.unit) + '</span><div class="stepper"><button type="button" class="qtybtn" data-act="qty" data-no="' + a.no + '" data-l="' + l.id + '" data-d="-1" data-fk="dec-' + l.id + '"' + (frozen ? ' disabled' : '') + ' aria-label="' + esc(l.name) + ' adedini azalt">' + ic('minus', 26, 2.6) + '</button><span class="qty">' + l.qty + '</span><button type="button" class="qtybtn" data-act="qty" data-no="' + a.no + '" data-l="' + l.id + '" data-d="1" data-fk="inc-' + l.id + '"' + (frozen ? ' disabled' : '') + ' aria-label="' + esc(l.name) + ' adedini artır">' + ic('plus', 26, 2.6) + '</button></div></div></li>').join('') + '</ul>'
+    '<li class="line' + (l.comp ? ' comp' : '') + '"><div class="line-top"><span class="line-name">' + esc(l.name) + (l.comp ? ' <span class="pill good comp-pill">' + ic('gift', 14, 2.2) + 'İkram</span>' : '') + '</span><span class="line-total">' + (l.comp ? '<s>' + TL(l.price * l.qty) + '</s> 0,00 ₺' : TL(l.price * l.qty)) + '</span></div>' +
+    '<div class="line-bottom"><span class="line-sub">' + TL(l.price) + ' × ' + l.qty + ' ' + esc(l.unit) + ' <button type="button" class="linkish gift" data-act="comp" data-no="' + a.no + '" data-l="' + l.id + '" data-fk="gift-' + l.id + '"' + (frozen ? ' disabled' : '') + ' aria-label="' + esc(l.name) + (l.comp ? ' ikramını kaldır' : ' ikram et') + '">' + ic(l.comp ? 'x' : 'gift', 16, 2.4) + '<span class="t">' + (l.comp ? 'kaldır' : 'ikram') + '</span></button></span><div class="stepper"><button type="button" class="qtybtn" data-act="qty" data-no="' + a.no + '" data-l="' + l.id + '" data-d="-1" data-fk="dec-' + l.id + '"' + (frozen ? ' disabled' : '') + ' aria-label="' + esc(l.name) + ' adedini azalt">' + ic('minus', 26, 2.6) + '</button><span class="qty">' + l.qty + '</span><button type="button" class="qtybtn" data-act="qty" data-no="' + a.no + '" data-l="' + l.id + '" data-d="1" data-fk="inc-' + l.id + '"' + (frozen ? ' disabled' : '') + ' aria-label="' + esc(l.name) + ' adedini artır">' + ic('plus', 26, 2.6) + '</button></div></div></li>').join('') + '</ul>'
     : '<p class="empty">Henüz ürün yok. Soldaki ürünlere tıklayarak ekleyin.</p>';
 
   const busyPrint = a && ui.busy === 'print:' + a.no;
@@ -550,10 +551,10 @@ function scDay() {
   const feat = D.featured ? kpi('Satılan ' + D.featured.name, nf0.format(D.featured.qty) + ' <span class="muted" style="font-size:20px">' + esc(D.featured.unit) + '</span>') : '';
   const vatText = (D.vats || []).length > 1 ? D.vats.map(v => 'KDV %' + v.rate + ' ' + TL(v.vat)).join(' · ') : (D.vats || []).length === 1 ? 'KDV %' + D.vats[0].rate + ': ' + TL(D.vat) : 'KDV ' + TL(D.vat);
   const kpis = '<div class="kpis">' + kpi('Ciro (KDV dahil)', TL(D.revenue), vatText + ' · matrah ' + TL(D.revenue - D.vat)) + kpi('Ödenen adisyon', nf0.format(D.paid), D.firstNo ? 'No ' + D.firstNo + '–' + D.lastNo : '') + kpi('Ortalama adisyon', TL(D.avg)) + feat +
-    kpi('İptal', nf0.format(D.cancelled), D.cancelled ? TL(D.cancelledTotal) : (D.merged ? D.merged + ' masa birleşti' : '')) + (D.discounts ? kpi('İndirim', '−' + TL(D.discountTotal), D.discounts + ' adisyon') : '') + (D.open ? kpi('Açık masa', '<span style="color:var(--bad)">' + D.open + '</span>', 'Gün kapatılmadan önce kapatılmalı') : '') + '</div>';
+    kpi('İptal', nf0.format(D.cancelled), D.cancelled ? TL(D.cancelledTotal) : (D.merged ? D.merged + ' masa birleşti' : '')) + (D.discounts ? kpi('İndirim', '−' + TL(D.discountTotal), D.discounts + ' adisyon') : '') + (D.comps ? kpi('İkram', nf0.format(D.comps) + ' <span class="muted" style="font-size:20px">ürün</span>', TL(D.compValue) + ' değerinde') : '') + (D.open ? kpi('Açık masa', '<span style="color:var(--bad)">' + D.open + '</span>', 'Gün kapatılmadan önce kapatılmalı') : '') + '</div>';
   const pay = '<section class="card pad stack"><div class="card-head"><h2>Ödeme şekilleri</h2><span class="muted small">Kasa sayımı için</span></div>' + payShareHTML(D.byPayment || [], D.revenue) + '</section>';
   const waiters = '<section class="card pad stack"><div class="card-head"><h2>Garsonlar</h2></div>' + ((D.byWaiter || []).length ? '<table class="legend-table"><tbody>' + D.byWaiter.map(w => '<tr><td>' + ic('user', 18) + ' ' + esc(w.name) + '</td><td class="r muted">' + w.count + ' adisyon</td><td class="r"><strong>' + TL(w.total) + '</strong></td></tr>').join('') + '</tbody></table>' : '<p class="muted">Ödenen adisyon yok.</p>') + '</section>';
-  const prods = '<section class="card pad stack"><div class="card-head"><h2>Satılan ürünler</h2></div>' + ((D.products || []).length ? '<table class="legend-table"><tbody>' + D.products.map(p => '<tr><td>' + esc(p.name) + '</td><td class="r"><strong>' + nf0.format(p.qty) + '</strong> <span class="muted">' + esc(p.unit) + '</span></td><td class="r muted">' + TL(p.total) + '</td></tr>').join('') + '</tbody></table>' : '<p class="muted">Henüz satış yok.</p>') + '</section>';
+  const prods = '<section class="card pad stack"><div class="card-head"><h2>Satılan ürünler</h2>' + (D.comps ? '<span class="muted small">+ ' + nf0.format(D.comps) + ' ikram</span>' : '') + '</div>' + ((D.products || []).length ? '<table class="legend-table"><tbody>' + D.products.map(p => '<tr><td>' + esc(p.name) + '</td><td class="r"><strong>' + nf0.format(p.qty) + '</strong> <span class="muted">' + esc(p.unit) + '</span>' + (p.comp ? '<br><span class="muted small">+' + nf0.format(p.comp) + ' ikram</span>' : '') + '</td><td class="r muted">' + TL(p.total) + '</td></tr>').join('') + '</tbody></table>' : '<p class="muted">Henüz satış yok.</p>') + '</section>';
   const f = ui.day.filter;
   const rows = (D.rows || []).filter(r => f === 'all' || (f === 'paid' && r.status === 'paid') || (f === 'cancelled' && r.status === 'cancelled') || (f === 'open' && (r.status === 'open' || r.status === 'printed')));
   const chips = [['all', 'Tümü', (D.rows || []).length], ['paid', 'Ödenen', D.paid], ['cancelled', 'İptal ve birleşen', D.cancelled + D.merged], ['open', 'Açık', D.open]].map(([k, l, n]) => '<button type="button" class="chip" data-act="day-filter" data-f="' + k + '" aria-pressed="' + (f === k) + '">' + l + ' (' + n + ')</button>').join('');
@@ -603,7 +604,7 @@ async function showDetail(no) {
   const d = r.data; const a = d.adisyon;
   const pills = statusPill({ status: a.status, mergedInto: a.mergedInto });
   const disc = a.discountPercent ? '<tr><td class="muted">Ara toplam</td><td class="r muted">' + TL(a.total + a.discountAmount) + '</td></tr><tr><td class="muted">İndirim (%' + a.discountPercent + ')</td><td class="r muted">−' + TL(a.discountAmount) + '</td></tr>' : '';
-  const lines = (a.lines || []).length ? '<table class="legend-table"><tbody>' + a.lines.map(l => '<tr><td><strong>' + esc(l.name) + '</strong><br><span class="muted">' + l.qty + ' ' + esc(l.unit) + ' × ' + TL(l.price) + '</span></td><td class="r"><strong>' + TL(l.qty * l.price) + '</strong></td></tr>').join('') + disc + '<tr><td><strong>Toplam</strong>' + (d.vats || []).map(v => '<br><span class="muted">KDV %' + v.rate + ': ' + TL(v.vat) + '</span>').join('') + '</td><td class="r"><strong style="font-size:24px">' + TL(a.total) + '</strong></td></tr></tbody></table>' : '<p class="muted">Kalem yok.</p>';
+  const lines = (a.lines || []).length ? '<table class="legend-table"><tbody>' + a.lines.map(l => '<tr><td><strong>' + esc(l.name) + '</strong>' + (l.comp ? ' <span class="pill good comp-pill">' + ic('gift', 14, 2.2) + 'İkram</span>' : '') + '<br><span class="muted">' + l.qty + ' ' + esc(l.unit) + ' × ' + TL(l.price) + '</span></td><td class="r"><strong>' + (l.comp ? '<s class="muted">' + TL(l.qty * l.price) + '</s> 0,00 ₺' : TL(l.qty * l.price)) + '</strong></td></tr>').join('') + disc + '<tr><td><strong>Toplam</strong>' + (d.vats || []).map(v => '<br><span class="muted">KDV %' + v.rate + ': ' + TL(v.vat) + '</span>').join('') + '</td><td class="r"><strong style="font-size:24px">' + TL(a.total) + '</strong></td></tr></tbody></table>' : '<p class="muted">Kalem yok.</p>';
   const canChange = a.status === 'paid' && !d.dayClosed;
   const kv = '<dl class="kv"><dt>İş günü</dt><dd>' + esc(dateLong(a.businessDate)) + '</dd><dt>Masa · garson</dt><dd>Masa ' + a.table + ' · ' + esc(a.waiterName) + '</dd><dt>Açılış</dt><dd>' + esc(stampText(a.openedAt)) + '</dd>' +
     (a.printCount ? '<dt>Baskı</dt><dd>' + a.printCount + ' kez · son ' + esc(stampText(a.printedAt)) + (a.changed ? ' · <span style="color:var(--warn)">sonra değişti</span>' : '') + '</dd>' : '<dt>Baskı</dt><dd>Basılmadı</dd>') +
@@ -649,7 +650,7 @@ function reopenFlow(a) {
 function discountFlow(t) {
   const a = activeFor(t); if (!a) return;
   const cur = a.discountPercent || 0;
-  const presets = (S.discountPresets || [5, 10, 15, 20, 25, 50]).map(p => '<button type="button" class="pay-btn disc-btn" data-act="discount-set" data-t="' + t + '" data-pct="' + p + '"' + (p === cur ? ' aria-pressed="true"' : '') + '><strong>%' + p + '</strong><span class="muted small">−' + TL(discountOf(a.lines.reduce((s, l) => s + l.price * l.qty, 0), p)) + '</span></button>').join('');
+  const presets = (S.discountPresets || [5, 10, 15, 20, 25, 50]).map(p => '<button type="button" class="pay-btn disc-btn" data-act="discount-set" data-t="' + t + '" data-pct="' + p + '"' + (p === cur ? ' aria-pressed="true"' : '') + '><strong>%' + p + '</strong><span class="muted small">−' + TL(discountOf(a.lines.reduce((s, l) => s + (l.comp ? 0 : l.price * l.qty), 0), p)) + '</span></button>').join('');
   openModal({
     title: 'No ' + a.no + ' · indirim',
     body: '<p class="muted">İndirim adisyonun tamamına uygulanır, fişte “İndirim” satırı olarak çıkar ve gün sonunda ayrıca görünür.' + (S.discountNoPin ? '' : ' Uygulamak yönetici şifresi ister.') + '</p>' +
@@ -658,6 +659,28 @@ function discountFlow(t) {
       '<p class="hint">%100 ikram demektir: toplam sıfır olur.</p>',
     actions: [{ label: 'Vazgeç', onClick: () => closeModal() }]
   });
+}
+// İkram: kalemin tümü ya da bir kısmı ücretsiz olur; fişte İKRAM yazar, tutara girmez.
+function compFlow(no, lineId) {
+  const a = S.open.find(o => o.no === no); if (!a) return;
+  const l = a.lines.find(x => x.id === lineId); if (!l) return;
+  if (l.comp) { setComp(no, lineId, l.qty, false); return; }
+  if (l.qty === 1) { setComp(no, lineId, 1, true); return; }
+  const opts = []; for (let q = 1; q <= l.qty; q++) opts.push('<button type="button" class="pay-btn disc-btn" data-act="comp-set" data-no="' + no + '" data-l="' + lineId + '" data-qty="' + q + '" data-c="1"><strong>' + q + ' ' + esc(l.unit) + '</strong><span class="muted small">' + (q === l.qty ? 'tümü ikram' : TL(l.price * q) + ' alınmaz') + '</span></button>');
+  openModal({
+    title: esc(l.name) + ' · kaçı ikram?',
+    body: '<p class="muted">Adisyonda ' + l.qty + ' ' + esc(l.unit) + ' ' + esc(l.name) + ' var. İkram edilen adet adisyonda ve fişte “İKRAM” olarak görünür, ücreti alınmaz.' + (S.discountNoPin ? '' : ' Yönetici şifresi sorulur.') + '</p><div class="pay-methods disc-grid">' + opts.join('') + '</div>',
+    actions: [{ label: 'Vazgeç', onClick: () => closeModal() }]
+  });
+}
+async function setComp(no, lineId, qty, comp) {
+  closeModal(true);
+  const a = S.open.find(o => o.no === no); if (!a) return;
+  const l = a.lines.find(x => x.id === lineId);
+  const r = await act('comp', { no, lineId, qty, comp });
+  if (!r) return;
+  render();
+  toast(comp ? (l ? l.name + ' × ' + qty + ' ikram edildi' : 'İkram edildi') : (l ? l.name + ' ikramı kaldırıldı' : 'İkram kaldırıldı'), 'good');
 }
 async function setDiscount(t, pct) {
   const a = activeFor(t); if (!a) return;
@@ -844,7 +867,7 @@ function scStats() {
   const hours = hourItems(D.hours);
   const hourChart = card2('Saatlere göre yoğunluk', 'Masanın açıldığı saate göre adisyon sayısı', hours.length ? chartBox('st-hour', { kind: 'cols', fmt: 'n', items: hours }, 260) : empty('Bu dönemde satış yok.'));
   const waiters = card2('Garsonlar', 'Ödenen adisyonlar', (D.byWaiter || []).length ? '<table class="legend-table"><tbody>' + D.byWaiter.map(w => '<tr><td>' + ic('user', 18) + ' ' + esc(w.name) + '</td><td class="r muted">' + nf0.format(w.count) + ' adisyon</td><td class="r"><strong>' + TL(w.total) + '</strong></td><td class="r muted">ort. ' + TL(w.count ? Math.round(w.total / w.count) : 0) + '</td></tr>').join('') + '</tbody></table>' : '<p class="muted">Ödenen adisyon yok.</p>');
-  const extra = '<div class="status-line"><span>KDV toplamı <strong>' + TL(D.vat) + '</strong></span><span>Matrah <strong>' + TL(D.revenue.value - D.vat) + '</strong></span><span>İptal <strong>' + nf0.format(D.cancelled) + '</strong>' + (D.cancelled ? ' · ' + TL(D.cancelledTotal) : '') + '</span>' + (D.discounts ? '<span>İndirim <strong>' + nf0.format(D.discounts) + '</strong> · −' + TL(D.discountTotal) + '</span>' : '') + '</div>';
+  const extra = '<div class="status-line"><span>KDV toplamı <strong>' + TL(D.vat) + '</strong></span><span>Matrah <strong>' + TL(D.revenue.value - D.vat) + '</strong></span><span>İptal <strong>' + nf0.format(D.cancelled) + '</strong>' + (D.cancelled ? ' · ' + TL(D.cancelledTotal) : '') + '</span>' + (D.discounts ? '<span>İndirim <strong>' + nf0.format(D.discounts) + '</strong> · −' + TL(D.discountTotal) + '</span>' : '') + (D.comps ? '<span>İkram <strong>' + nf0.format(D.comps) + '</strong> ürün · ' + TL(D.compValue) + '</span>' : '') + '</div>';
   return head + statsControls() + kpis + extra +
     (trend ? '<div class="grid-2">' + trend + pay + '</div><div class="grid-2">' + prods + (one || hourChart) + '</div>' + (one ? '<div class="grid-2">' + hourChart + waiters + '</div>' : '<div class="grid-2">' + waiters + '</div>')
       : '<div class="grid-2">' + hourChart + pay + '</div><div class="grid-2">' + prods + waiters + '</div>') +
@@ -1256,7 +1279,7 @@ function scSettings() {
       '<section class="card pad stack" aria-labelledby="sifre-h"><h2 id="sifre-h" class="sec-title">Yönetici şifresi</h2><p class="hint">Şifre istenen ekranlar: Gün Sonu, İstatistik, Ürünler ve Ayarlar. Adisyon iptali, basılmış adisyondan ürün düşmek, basılmış adisyonu boşaltmak, ödeme şeklini değiştirmek, ödenmiş adisyonu yeniden açmak ve yedekten geri yüklemek her seferinde ayrıca şifre ister.</p>' +
         '<div class="fields"><div class="field"><label for="pin-old">Mevcut şifre</label><input class="input" id="pin-old" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></div><div class="field"><label for="pin-new">Yeni şifre (4 rakam)</label><input class="input" id="pin-new" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></div><div class="field"><label for="pin-new2">Yeni şifre tekrar</label><input class="input" id="pin-new2" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></div></div>' +
         '<div class="row"><button type="button" class="btn btn-outline btn-md" data-act="pin-save">Şifreyi değiştir</button><div class="field" style="flex-direction:row;align-items:center;gap:10px"><label for="set-lock">Kendiliğinden kilit</label><select class="input" id="set-lock" style="width:auto">' + [2, 5, 10, 15].map(m => '<option value="' + m + '"' + (S.lockMinutes === m ? ' selected' : '') + '>' + m + ' dk</option>').join('') + '</select></div></div>' +
-        '<label class="switch-row" for="set-disc-pin"><span>İndirim için yönetici şifresi istensin<br><span class="muted small">Kapalıysa garson şifresiz indirim uygulayabilir; her indirim yine işlem kaydına yazılır.</span></span><input class="switch" type="checkbox" id="set-disc-pin"' + (S.discountNoPin ? '' : ' checked') + '></label></section>' +
+        '<label class="switch-row" for="set-disc-pin"><span>İndirim ve ikram için yönetici şifresi istensin<br><span class="muted small">Kapalıysa garson şifresiz indirim ve ikram yapabilir; her biri yine işlem kaydına yazılır.</span></span><input class="switch" type="checkbox" id="set-disc-pin"' + (S.discountNoPin ? '' : ' checked') + '></label></section>' +
       '<section class="card pad stack" aria-labelledby="prog-h"><h2 id="prog-h" class="sec-title">Program</h2>' +
         '<label class="switch-row" for="set-fullscreen"><span>Açılışta tam ekran</span><input class="switch" type="checkbox" id="set-fullscreen"' + (pg.fullscreen ? ' checked' : '') + '></label>' +
         (pg.autostartSupported ? '<label class="switch-row" for="set-autostart"><span>Windows açılınca programı başlat</span><input class="switch" type="checkbox" id="set-autostart"' + (pg.autostart ? ' checked' : '') + '></label>' : '') +
@@ -1327,9 +1350,9 @@ function doPost(e) {
     if (veri.type !== 'gun_sonu') return yanit({ ok: false, error: 'Bilinmeyen veri.' });
     const tablo = SpreadsheetApp.getActiveSpreadsheet();
     const tarih = veri.gun.tarih;
-    yaz(tablo, 'Gün Sonu', ['Tarih', 'Kapanış', 'Ciro', 'KDV', 'Adisyon', 'Ortalama', 'İptal', 'İptal tutarı', 'Nakit', 'Kredi Kartı', 'Havale', 'Öne çıkan ürün', 'Adet', 'Garsonlar', 'Adisyon no', 'İndirimli adisyon', 'İndirim tutarı'], [veri.gun.satir], tarih);
+    yaz(tablo, 'Gün Sonu', ['Tarih', 'Kapanış', 'Ciro', 'KDV', 'Adisyon', 'Ortalama', 'İptal', 'İptal tutarı', 'Nakit', 'Kredi Kartı', 'Havale', 'Öne çıkan ürün', 'Adet', 'Garsonlar', 'Adisyon no', 'İndirimli adisyon', 'İndirim tutarı', 'İkram adet', 'İkram değeri'], [veri.gun.satir], tarih);
     yaz(tablo, 'Adisyonlar', ['Tarih', 'No', 'Masa', 'Garson', 'Açılış', 'Kapanış', 'Durum', 'Ödeme şekli', 'Tutar', 'Baskı', 'Not', 'İndirim %', 'İndirim'], veri.adisyonlar, tarih);
-    yaz(tablo, 'Ürünler', ['Tarih', 'Ürün', 'Adet', 'Birim', 'Tutar'], veri.urunler, tarih);
+    yaz(tablo, 'Ürünler', ['Tarih', 'Ürün', 'Adet', 'Birim', 'Tutar', 'İkram adet'], veri.urunler, tarih);
     return yanit({ ok: true });
   } catch (hata) {
     return yanit({ ok: false, error: String(hata) });
@@ -1788,6 +1811,8 @@ const ACT = {
   'discount-set': el => setDiscount(Number(el.dataset.t), Number(el.dataset.pct)),
   'discount-custom': el => { const v = val('disc-pct').trim().replace('%', ''); if (!/^\d{1,3}$/.test(v)) { toast('Yüzde 1 ile 100 arasında tam sayı olmalı.', 'bad'); return; } setDiscount(Number(el.dataset.t), Number(v)); },
   'discount-clear': el => setDiscount(Number(el.dataset.t), 0),
+  'comp': el => compFlow(Number(el.dataset.no), Number(el.dataset.l)),
+  'comp-set': el => setComp(Number(el.dataset.no), Number(el.dataset.l), Number(el.dataset.qty), el.dataset.c === '1'),
   'empty-close': el => once('empty-close', async () => { const t = Number(el.dataset.t); const a = activeFor(t); if (!a) return; if (await act('closeEmpty', { no: a.no })) { toast('Masa ' + t + ' boşaltıldı.'); ui.route = 'masalar'; ui.table = null; render(); } }),
   'change-waiter': el => {
     const t = Number(el.dataset.t); const a = activeFor(t); const d = ui.drafts[t];
@@ -1933,7 +1958,7 @@ document.addEventListener('change', async e => {
     case 'wa-enabled': { const r = await saveWhatsApp({ enabled: el.checked }); if (r) toast(el.checked ? 'Gün kapanınca WhatsApp mesajı gönderilecek.' : 'WhatsApp gönderimi kapatıldı.'); break; }
     case 'gs-enabled': { const r = await saveSheets({ enabled: el.checked }); if (r) toast(el.checked ? 'Gün kapanınca Google Sheets’e yazılacak.' : 'Google Sheets gönderimi kapatıldı.'); break; }
     case 'set-fullscreen': if (await act('saveSettings', { fullscreen: el.checked })) toast(el.checked ? 'Program tam ekran açılacak.' : 'Program pencere olarak açılacak.'); render(); break;
-    case 'set-disc-pin': if (await act('saveSettings', { discountNoPin: !el.checked })) toast(el.checked ? 'İndirim için yönetici şifresi istenecek.' : 'İndirim şifresiz uygulanabilecek.'); render(); break;
+    case 'set-disc-pin': if (await act('saveSettings', { discountNoPin: !el.checked })) toast(el.checked ? 'İndirim ve ikram için yönetici şifresi istenecek.' : 'İndirim ve ikram şifresiz yapılabilecek.'); render(); break;
     case 'set-autostart': if (await act('setAutostart', { on: el.checked })) toast(el.checked ? 'Windows açılınca program başlayacak.' : 'Otomatik başlatma kapatıldı.'); render(); break;
   }
   if (el.name === 'set-vat') { if (await act('saveSettings', { defaultVat: Number(el.value) })) toast('Varsayılan KDV %' + el.value + ' oldu.'); render(); }

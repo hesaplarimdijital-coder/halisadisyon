@@ -26,7 +26,7 @@ func (s *Service) receiptAdisyon(a *Adisyon, isCopy bool) receipt.Adisyon {
 	r := receipt.Adisyon{No: a.No, Table: a.Table, Waiter: a.WaiterName, When: s.now(), Copy: isCopy, Total: total,
 		Subtotal: subtotal, DiscountPercent: a.DiscountPercent, Discount: discount}
 	for _, l := range a.Lines {
-		r.Lines = append(r.Lines, receipt.Line{Name: l.Name, Unit: l.Unit, Qty: l.Qty, Price: l.Price})
+		r.Lines = append(r.Lines, receipt.Line{Name: l.Name, Unit: l.Unit, Qty: l.Qty, Price: l.Price, Comp: l.Comp})
 	}
 	for _, g := range groups {
 		r.VATs = append(r.VATs, receipt.VATGroup{Rate: g.Rate, Gross: g.Gross, VAT: g.VAT})
@@ -73,7 +73,7 @@ func sameLines(a, b []Line) bool {
 	}
 	for i := range a {
 		x, y := a[i], b[i]
-		if x.ProductID != y.ProductID || x.Price != y.Price || x.VAT != y.VAT || x.Qty != y.Qty || x.Name != y.Name {
+		if x.ProductID != y.ProductID || x.Price != y.Price || x.VAT != y.VAT || x.Qty != y.Qty || x.Name != y.Name || x.Comp != y.Comp {
 			return false
 		}
 	}

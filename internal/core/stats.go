@@ -45,6 +45,8 @@ type DayPoint struct {
 	Cancelled int    `json:"cancelled"`
 	VAT       int64  `json:"vat"`
 	Discount  int64  `json:"discount"` // yapılan indirim toplamı (kuruş)
+	Comps     int    `json:"comps"`    // ikram edilen ürün adedi
+	CompValue int64  `json:"compValue"`
 }
 
 // MonthPoint bir ayın toplamlarıdır (yıllık görünüm).
@@ -87,6 +89,8 @@ type Stats struct {
 	CancelledTotal int64         `json:"cancelledTotal"`
 	Discounts      int           `json:"discounts"`     // indirimli ödenen adisyon
 	DiscountTotal  int64         `json:"discountTotal"` // yapılan indirim toplamı
+	Comps          int           `json:"comps"`         // ikram edilen ürün adedi
+	CompValue      int64         `json:"compValue"`     // ikramların liste fiyatıyla değeri
 	Days           []DayPoint    `json:"days"`
 	Months         []MonthPoint  `json:"months"`
 	Products       []ProductQty  `json:"products"`
@@ -214,7 +218,7 @@ func (s *Service) periodTotals(from, to string, featuredID int64) (periodTotals,
 	}
 	if featuredID > 0 {
 		if err := s.db.QueryRow(`SELECT COALESCE(SUM(l.qty),0) FROM adisyon_lines l JOIN adisyons a ON a.no=l.adisyon_no
-			WHERE a.status='paid' AND a.business_date BETWEEN ? AND ? AND l.product_id=?`, from, to, featuredID).Scan(&p.featured); err != nil {
+			WHERE a.status='paid' AND l.comp=0 AND a.business_date BETWEEN ? AND ? AND l.product_id=?`, from, to, featuredID).Scan(&p.featured); err != nil {
 			return p, err
 		}
 	}
@@ -339,6 +343,30 @@ func (s *Service) stats(q StatsQuery) (*Stats, error) {
 	}
 	rows.Close()
 
+	// İkramlar (ödenen adisyonlardaki ücretsiz kalemler): adet ve liste fiyatıyla değeri
+	rows, err = s.db.Query(`SELECT a.business_date, COALESCE(SUM(l.qty),0), COALESCE(SUM(l.qty*l.price),0)
+		FROM adisyon_lines l JOIN adisyons a ON a.no=l.adisyon_no
+		WHERE a.status='paid' AND l.comp=1 AND a.business_date BETWEEN ? AND ? GROUP BY a.business_date`, F, T)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var d string
+		var n int
+		var v int64
+		if err := rows.Scan(&d, &n, &v); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if i, ok := index[d]; ok {
+			st.Days[i].Comps = n
+			st.Days[i].CompValue = v
+		}
+		st.Comps += n
+		st.CompValue += v
+	}
+	rows.Close()
+
 	// Ürünler: dönem toplamı ve gün × ürün tablosu
 	if st.Products, err = productTotals(s.db, `a.business_date BETWEEN ? AND ?`, F, T); err != nil {
 		return nil, err
@@ -359,7 +387,7 @@ func (s *Service) stats(q StatsQuery) (*Stats, error) {
 	}
 	rows, err = s.db.Query(`SELECT a.business_date, COALESCE(l.product_id,0), MAX(l.name), SUM(l.qty)
 		FROM adisyon_lines l JOIN adisyons a ON a.no=l.adisyon_no
-		WHERE a.status='paid' AND a.business_date BETWEEN ? AND ?
+		WHERE a.status='paid' AND l.comp=0 AND a.business_date BETWEEN ? AND ?
 		GROUP BY a.business_date, COALESCE(l.product_id,0), CASE WHEN l.product_id IS NULL THEN l.name ELSE '' END`, F, T)
 	if err != nil {
 		return nil, err

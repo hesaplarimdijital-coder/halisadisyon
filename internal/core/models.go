@@ -59,6 +59,8 @@ type Line struct {
 	Qty       int    `json:"qty"`
 	// PrintedQty son basılan adisyondaki adettir; altına inmek yönetici şifresi ister.
 	PrintedQty int `json:"printedQty"`
+	// Comp (ikram): kalem adisyonda ve fişte görünür, tutara ve KDV'ye girmez.
+	Comp bool `json:"comp"`
 }
 
 // Adisyon bir masanın hesabıdır.
@@ -78,7 +80,15 @@ type Adisyon struct {
 	CancelReason string `json:"cancelReason,omitempty"`
 	Total        int64  `json:"total"`
 	VATTotal     int64  `json:"vatTotal"`
-	Lines        []Line `json:"lines"`
+	// PaymentMethod ödenen adisyonun ödeme şeklidir: nakit, kart, havale.
+	PaymentMethod string `json:"paymentMethod,omitempty"`
+	// MergedInto birleştirilen (kapanan) adisyonun eklendiği adisyon numarasıdır.
+	MergedInto int64 `json:"mergedInto,omitempty"`
+	// DiscountPercent adisyonun tamamına uygulanan yüzde indirimdir (0: yok);
+	// DiscountAmount bunun kuruş karşılığıdır. Total ve VATTotal indirim düşülmüş hallerdir.
+	DiscountPercent int    `json:"discountPercent"`
+	DiscountAmount  int64  `json:"discountAmount"`
+	Lines           []Line `json:"lines"`
 }
 
 func (a *Adisyon) active() bool { return a.Status == StatusOpen || a.Status == StatusPrinted }
@@ -105,10 +115,37 @@ type Settings struct {
 	LockMinutes     int             `json:"lockMinutes"`
 	Printer         printing.Config `json:"printer"`
 	SecondBackupDir string          `json:"secondBackupDir"`
+	DriveBackupDir  string          `json:"driveBackupDir"`
 	Fullscreen      bool            `json:"fullscreen"`
 	SetupDone       bool            `json:"setupDone"`
 	PinSalt         string          `json:"pinSalt"`
 	PinHash         string          `json:"pinHash"`
+	// FeaturedProductID istatistikte "satılan cağ" kartının ürünü (0: adı Cağ olan).
+	FeaturedProductID int64            `json:"featuredProductId"`
+	WhatsApp          WhatsAppSettings `json:"whatsapp"`
+	Sheets            SheetsSettings   `json:"sheets"`
+	// DiscountNoPIN açıksa indirim yönetici şifresi istemez (varsayılan: ister).
+	DiscountNoPIN bool `json:"discountNoPin"`
+}
+
+// WhatsAppSettings gün sonu özetinin WhatsApp Business Platform (Cloud API) ile
+// gönderilmesi içindir. Mesaj, Meta'da onaylanmış bir şablonla gider.
+type WhatsAppSettings struct {
+	Enabled       bool     `json:"enabled"`
+	PhoneNumberID string   `json:"phoneNumberId"`
+	Token         string   `json:"token"`
+	Template      string   `json:"template"`
+	Lang          string   `json:"lang"`
+	APIVersion    string   `json:"apiVersion"`
+	Recipients    []string `json:"recipients"`
+}
+
+// SheetsSettings gün sonu özetinin ve adisyonların Google Sheets'e yazılması
+// içindir (tabloya eklenen Apps Script web uygulaması adresi).
+type SheetsSettings struct {
+	Enabled bool   `json:"enabled"`
+	URL     string `json:"url"`
+	Secret  string `json:"secret"`
 }
 
 // BackupInfo ayarlar ekranında gösterilen yedek durumudur.
@@ -118,6 +155,10 @@ type BackupInfo struct {
 	LastAt      string `json:"lastAt"`
 	LastError   string `json:"lastError"`
 	SecondError string `json:"secondError"`
+	SecondAt    string `json:"secondAt"`
+	DriveDir    string `json:"driveDir"`
+	DriveError  string `json:"driveError"`
+	DriveAt     string `json:"driveAt"`
 }
 
 // ProgramInfo pencere ve sistem bilgisidir.
@@ -169,7 +210,8 @@ type State struct {
 	Open         []Adisyon       `json:"open"`
 	UndoCounts   map[int64]int   `json:"undoCounts"`
 	NextNo       int64           `json:"nextNo"`
-	BusinessDate string          `json:"businessDate"`
+	BusinessDate string          `json:"businessDate"` // yeni adisyonların yazıldığı (açık) iş günü
+	ClockDate    string          `json:"clockDate"`    // saate göre bugünün iş günü
 	Printer      printing.Config `json:"printer"`
 	Backup       BackupInfo      `json:"backup"`
 	Program      ProgramInfo     `json:"program"`
@@ -180,6 +222,37 @@ type State struct {
 	// Boot programın açılış anıdır (program yeniden açılınca Seq baştan başlar).
 	Seq  uint64 `json:"seq"`
 	Boot int64  `json:"boot"`
+
+	PaymentMethods    []PaymentMethod `json:"paymentMethods"`
+	UnclosedDays      []string        `json:"unclosedDays"` // gün sonu alınmamış önceki günler
+	Notice            string          `json:"notice,omitempty"`
+	FeaturedProductID int64           `json:"featuredProductId"`
+	WhatsApp          WhatsAppView    `json:"whatsapp"`
+	Sheets            SheetsView      `json:"sheets"`
+	DiscountNoPIN     bool            `json:"discountNoPin"`
+	DiscountPresets   []int           `json:"discountPresets"`
+}
+
+// WhatsAppView ayarlar ekranındaki WhatsApp bilgisidir (erişim anahtarı gönderilmez).
+type WhatsAppView struct {
+	Enabled       bool         `json:"enabled"`
+	PhoneNumberID string       `json:"phoneNumberId"`
+	HasToken      bool         `json:"hasToken"`
+	TokenHint     string       `json:"tokenHint"`
+	TokenLost     bool         `json:"tokenLost"` // yedekten başka bilgisayara geldi; yeniden girilmeli
+	Template      string       `json:"template"`
+	Lang          string       `json:"lang"`
+	APIVersion    string       `json:"apiVersion"`
+	Recipients    []string     `json:"recipients"`
+	Status        OutboxStatus `json:"status"`
+}
+
+// SheetsView ayarlar ekranındaki Google Sheets bilgisidir.
+type SheetsView struct {
+	Enabled bool         `json:"enabled"`
+	URL     string       `json:"url"`
+	Secret  string       `json:"secret,omitempty"` // yalnız yönetici girişi açıkken
+	Status  OutboxStatus `json:"status"`
 }
 
 // PrintOutcome bir baskı denemesinin arayüze dönen sonucudur.
@@ -192,9 +265,11 @@ type PrintOutcome struct {
 
 // PayOutcome hesap kapatma sonucudur.
 type PayOutcome struct {
-	Paid  bool          `json:"paid"`
-	Total int64         `json:"total"` // kapanan tutar
-	Print *PrintOutcome `json:"print,omitempty"`
+	Paid        bool   `json:"paid"`
+	No          int64  `json:"no"`
+	Total       int64  `json:"total"` // kapanan tutar
+	Method      string `json:"method"`
+	MethodLabel string `json:"methodLabel"`
 }
 
 // UserError garsona ya da yöneticiye gösterilecek açıklamalı hatadır.

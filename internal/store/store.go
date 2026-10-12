@@ -17,7 +17,9 @@ import (
 )
 
 // SchemaVersion programın beklediği şema sürümüdür.
-const SchemaVersion = 1
+// 1: ilk sürüm (1.0.0) · 2: ödeme şekli, gün sonu, masa birleştirme, dış gönderim kuyruğu (2.0.0)
+// 3: yüzde indirim (2.1.0) · 4: ikram kalemi (2.2.0)
+const SchemaVersion = 4
 
 // Store açık veritabanı bağlantısını tutar.
 type Store struct {
@@ -129,6 +131,118 @@ func (s *Store) BackupTo(path string) error {
 	return nil
 }
 
+// requiredTables her Halis Adisyon veritabanında bulunan tablolardır.
+var requiredTables = []string{"settings", "categories", "products", "waiters", "adisyons", "adisyon_lines", "audit_log"}
+
+// Validate dosyanın bu programın açabileceği sağlam bir Halis Adisyon
+// veritabanı olduğunu denetler (yedekten geri yüklemeden önce). Dosya
+// programın kendi geçici kopyası olmalıdır; asıl yedeğe dokunulmaz.
+func Validate(path string) error {
+	c, err := sqlite3.OpenFlags(path, sqlite3.OPEN_READWRITE)
+	if err != nil {
+		return fmt.Errorf("yedek dosyası açılamadı: %w", err)
+	}
+	defer c.Close()
+	_ = c.BusyTimeout(5 * time.Second)
+	one := func(q string) (string, int64, error) {
+		stmt, _, err := c.Prepare(q)
+		if err != nil {
+			return "", 0, err
+		}
+		defer stmt.Close()
+		if !stmt.Step() {
+			return "", 0, stmt.Err()
+		}
+		return stmt.ColumnText(0), stmt.ColumnInt64(0), nil
+	}
+	if res, _, err := one(`PRAGMA integrity_check`); err != nil || res != "ok" {
+		if err == nil {
+			err = fmt.Errorf("%s", res)
+		}
+		return fmt.Errorf("yedek dosyası bozuk: %w", err)
+	}
+	_, ver, err := one(`PRAGMA user_version`)
+	if err != nil {
+		return err
+	}
+	if ver < 1 {
+		return fmt.Errorf("bu dosya bir Halis Adisyon yedeği değil")
+	}
+	if ver > SchemaVersion {
+		return fmt.Errorf("yedek programın daha yeni bir sürümüyle alınmış (şema %d); önce programı güncelleyin", ver)
+	}
+	quoted := make([]string, len(requiredTables))
+	for i, t := range requiredTables {
+		quoted[i] = "'" + t + "'"
+	}
+	_, n, err := one(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN (` + strings.Join(quoted, ",") + `)`)
+	if err != nil {
+		return err
+	}
+	if int(n) != len(requiredTables) {
+		return fmt.Errorf("bu dosya bir Halis Adisyon yedeği değil (tablolar eksik)")
+	}
+	if _, n, err := one(`SELECT COUNT(*) FROM settings WHERE key='settings'`); err != nil || n != 1 {
+		return fmt.Errorf("yedekte program ayarları yok")
+	}
+	return nil
+}
+
+// ValidateMessage doğrulama hatasını kullanıcıya gösterilecek sade bir cümleye çevirir.
+func ValidateMessage(err error) string {
+	m := err.Error()
+	switch {
+	case strings.Contains(m, "daha yeni bir sürüm"):
+		return "Bu yedek programın daha yeni bir sürümüyle alınmış; önce programı güncelleyin."
+	case strings.Contains(m, "Halis Adisyon yedeği değil"), strings.Contains(m, "ayarları yok"):
+		return "Bu dosya bir Halis Adisyon yedeği değil."
+	}
+	return "Yedek dosyası bozuk ya da yarım; başka bir yedek seçin."
+}
+
+// MaxNumber veritabanında verilmiş en büyük adisyon numarasını verir (no_floor dahil).
+// Dosya programın kendi verisidir ve o an başka bir bağlantı açık değildir.
+func MaxNumber(path string) (int64, error) {
+	c, err := sqlite3.OpenFlags(path, sqlite3.OPEN_READWRITE)
+	if err != nil {
+		return 0, err
+	}
+	defer c.Close()
+	_ = c.BusyTimeout(5 * time.Second)
+	stmt, _, err := c.Prepare(`SELECT MAX(COALESCE((SELECT MAX(no) FROM adisyons),0),
+		COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key='no_floor'),0))`)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close()
+	if !stmt.Step() {
+		return 0, stmt.Err()
+	}
+	return stmt.ColumnInt64(0), nil
+}
+
+// SetNumberFloor geri yüklenecek veritabanına numara tabanını yazar: sıradaki
+// adisyon numarası bunun üstünden devam eder.
+func SetNumberFloor(path string, floor int64) error {
+	c, err := sqlite3.OpenFlags(path, sqlite3.OPEN_READWRITE)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	_ = c.BusyTimeout(5 * time.Second)
+	stmt, _, err := c.Prepare(`INSERT INTO settings(key,value) VALUES('no_floor',?)
+		ON CONFLICT(key) DO UPDATE SET value=MAX(CAST(value AS INTEGER), CAST(excluded.value AS INTEGER))`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	if err := stmt.BindInt64(1, floor); err != nil {
+		return err
+	}
+	stmt.Step()
+	return stmt.Err()
+}
+
 // migrations[n] şemayı n-1'den n'ye taşır.
 var migrations = map[int]string{
 	1: `
@@ -211,5 +325,47 @@ CREATE TABLE audit_log (
 	detail     TEXT
 );
 CREATE INDEX audit_log_at ON audit_log(at);
+`,
+	2: `
+-- Ödeme şekli: 'nakit' | 'kart' | 'havale' (yalnız ödenen adisyonda)
+ALTER TABLE adisyons ADD COLUMN payment_method TEXT;
+-- Masa birleştirmede kapanan adisyonun eklendiği adisyon numarası
+ALTER TABLE adisyons ADD COLUMN merged_into INTEGER;
+CREATE INDEX adisyons_closed ON adisyons(closed_at);
+CREATE INDEX audit_log_no ON audit_log(adisyon_no);
+CREATE INDEX adisyon_lines_product ON adisyon_lines(product_id);
+
+-- Gün sonu: kapatılan iş günü değiştirilemez; kapanıştaki özet saklanır.
+CREATE TABLE business_days (
+	date      TEXT PRIMARY KEY,               -- iş günü (YYYY-AA-GG)
+	closed_at TEXT,                           -- NULL: açık
+	summary   TEXT                            -- kapanıştaki özet (JSON)
+);
+
+-- İnternet gerektiren gönderimler (WhatsApp, Google Sheets): internet yoksa sırada bekler.
+CREATE TABLE outbox (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	kind       TEXT NOT NULL,                 -- 'whatsapp' | 'sheets'
+	target     TEXT NOT NULL DEFAULT '',      -- telefon numarası (WhatsApp)
+	ref        TEXT NOT NULL DEFAULT '',      -- ilgili iş günü ya da 'test'
+	payload    TEXT NOT NULL,                 -- JSON
+	created_at TEXT NOT NULL,
+	status     TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed')),
+	attempts   INTEGER NOT NULL DEFAULT 0,
+	next_at    TEXT NOT NULL,
+	sent_at    TEXT,
+	last_error TEXT
+);
+CREATE INDEX outbox_pending ON outbox(status, next_at);
+`,
+	3: `
+-- Yüzde indirim: adisyonun tamamına uygulanır; tutar kuruş olarak saklanır,
+-- total ve vat_total indirim düşülmüş hallerdir.
+ALTER TABLE adisyons ADD COLUMN discount_percent INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE adisyons ADD COLUMN discount_amount INTEGER NOT NULL DEFAULT 0;
+`,
+	4: `
+-- İkram kalemi: adisyonda ve fişte görünür, tutara ve KDV'ye girmez.
+ALTER TABLE adisyon_lines ADD COLUMN comp INTEGER NOT NULL DEFAULT 0;
 `,
 }

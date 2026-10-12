@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-2.2.0}"
 DIST="dist"
 STAGE="$DIST/stage"
 rm -rf "$STAGE"

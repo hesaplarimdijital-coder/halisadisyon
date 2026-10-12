@@ -26,11 +26,12 @@ type Business struct {
 	Logo               image.Image
 }
 
-// Line adisyon kalemidir.
+// Line adisyon kalemidir. Comp (ikram) kalemler fişte görünür ama tutara girmez.
 type Line struct {
 	Name, Unit string
 	Qty        int
 	Price      int64 // birim fiyat, kuruş, KDV dahil
+	Comp       bool
 }
 
 // VATGroup bir KDV oranına düşen tutardır.
@@ -39,16 +40,20 @@ type VATGroup struct {
 	Gross, VAT int64
 }
 
-// Adisyon basılacak müşteri adisyonudur.
+// Adisyon basılacak müşteri adisyonudur. Total indirim düşülmüş tutardır;
+// indirim varsa ara toplam ve indirim satırı da basılır.
 type Adisyon struct {
-	No     int64
-	Table  int
-	Waiter string
-	When   time.Time
-	Copy   bool
-	Lines  []Line
-	Total  int64
-	VATs   []VATGroup
+	No              int64
+	Table           int
+	Waiter          string
+	When            time.Time
+	Copy            bool
+	Lines           []Line
+	Subtotal        int64
+	DiscountPercent int
+	Discount        int64
+	Total           int64
+	VATs            []VATGroup
 }
 
 // TestInfo test fişinde yazacak yazıcı bilgileridir.
@@ -159,11 +164,21 @@ func RenderAdisyon(b Business, a Adisyon, width int) (*image.Gray, error) {
 	itemF := face(semibold, 27*sf)
 	subF := face(regular, 23*sf)
 	for _, l := range a.Lines {
+		if l.Comp {
+			c.row(l.Name, itemF, "İKRAM", itemF, 0, 0)
+			c.line(fmt.Sprintf("%d %s · ikram, ücret alınmaz", l.Qty, l.Unit), subF, left, 0, int(8*sf))
+			continue
+		}
 		c.row(l.Name, itemF, money.Format(l.Price*int64(l.Qty)), itemF, 0, 0)
 		c.line(fmt.Sprintf("%d %s × %s", l.Qty, l.Unit, money.Format(l.Price)), subF, left, 0, int(8*sf))
 	}
 	c.rule(true, 2, int(4*sf), int(12*sf))
 
+	if a.DiscountPercent > 0 {
+		mid := face(semibold, 25*sf)
+		c.row("Ara toplam", mid, money.Format(a.Subtotal), mid, 0, int(3*sf))
+		c.row(fmt.Sprintf("İndirim (%%%d)", a.DiscountPercent), mid, "−"+money.Format(a.Discount), mid, 0, int(8*sf))
+	}
 	c.row("TOPLAM", face(bold, 32*sf), money.TL(a.Total), face(bold, 44*sf), 0, int(4*sf))
 	small := face(regular, 22*sf)
 	c.line("Fiyatlara KDV dahildir", small, left, 0, int(2*sf))

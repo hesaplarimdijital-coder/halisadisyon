@@ -1,5 +1,5 @@
-HALİS ADİSYON 1.0.0 (MVP 1) · KISA KULLANIM REHBERİ
-====================================================
+HALİS ADİSYON 2.2.0 · KISA KULLANIM REHBERİ
+============================================
 
 1. İLK AÇILIŞ
 -------------
@@ -10,6 +10,10 @@ Program ilk açılışta 5 adımlı bir kurulum gösterir:
   4) 12 ürünün fiyatları (KDV dahil)
   5) Yönetici şifresi (4 rakam)
 Bu bilgilerin hepsi sonradan Ayarlar ve Ürünler ekranlarından değiştirilebilir.
+Eski sürüm kuruluysa yenisini üzerine kurun: masalar, adisyonlar, ürünler ve
+ayarlar aynen kalır; güncellemeden önce verilerin ayrıca yedeği alınır.
+2.1.0'da gelenler: yüzde indirim, ödenmiş adisyonu düzeltme (yeniden açma) ve
+iptal, günlük yedeklerin 90 gün saklanması. 2.2.0: ikram kalemi.
 
 
 2. YAZICI (KODDATA KPS80)
@@ -32,14 +36,51 @@ Test fişinde kontrol edin:
   - QR kod telefon kamerasıyla okunuyor mu?
   - Kâğıt kesiliyor mu? Kesilmiyorsa "Tam kes"i deneyin.
 
+Ayarlar > Fiş bilgileri bölümünde sağda "Canlı önizleme" vardır: yazdıkça
+örnek adisyon yeniden çizilir; kâğıda basılan fiş bununla aynıdır.
+"Örnek adisyon bas" düğmesi aynı fişi yazıcıdan basar.
+
 
 3. GÜNLÜK KULLANIM (GARSON)
 ---------------------------
   - Masalar ekranında masaya tıklayın, garsonu seçin.
   - Ürünlere tıklayın; her tıklama 1 adet ekler. Yanlışı – ile azaltın ya da
     "Geri Al"a basın.
-  - "Adisyonu Bas": adisyon yazıcıdan çıkar. İkinci baskıda fişte "KOPYA" yazar.
-  - "Hesap Ödendi": masa boşalır.
+  - "Adisyonu Bas": adisyon yazıcıdan çıkar ve müşteriye verilir. İkinci
+    baskıda fişte "KOPYA" yazar.
+  - "Hesap Ödendi": müşteri ödeyince basın. Açılan pencerede müşterinin nasıl
+    ödediğini seçin: Nakit, Kredi Kartı ya da Havale (klavyeden 1, 2, 3).
+    Seçince hesap kapanır ve masa boşalır. Ödeme şekli fişe basılmaz (fiş
+    ödemeden önce verilir); programda adisyona kaydedilir ve gün sonunda,
+    istatistikte, Excel raporunda, WhatsApp mesajında ve Google Sheets'te
+    görünür. Adisyon basılmadıysa ya da basıldıktan sonra değiştiyse pencere
+    uyarır; "Adisyonu Bas"a basınca fiş çıkar ve pencere yeniden açılır.
+  - Yanlış ödeme şekli seçildiyse yönetici Gün Sonu ekranında adisyona
+    tıklayıp "Değiştir" ile düzeltir (şifre ister; gün kapatılmadan önce).
+  - "İndirim": anlaşmalı müşteri ya da ikram için adisyonun tamamına yüzde
+    indirim uygular (%5, %10, %15, %20, %25, %50 ya da elle; %100 ikramdır).
+    Yönetici şifresi ister (Ayarlar > Yönetici şifresi bölümünden kapatılabilir).
+    Fişte "Ara toplam", "İndirim (%10)" ve indirimli "TOPLAM" basılır; KDV
+    indirimli tutardan hesaplanır. İndirim ürün eklenince kendiliğinden yeni
+    toplama göre hesaplanır; "kaldır" ile şifresiz kaldırılır. Basılmış
+    adisyonda indirim değişirse fiş yeniden basılmalıdır (program uyarır).
+  - İkram: kalemin yanındaki hediye simgesine basın. Birden fazla adet varsa
+    kaçının ikram olduğu sorulur (3 ayranın 1'i gibi); ikram edilen adet ayrı
+    bir kalem olur. İkram kalemi adisyonda ve fişte "İKRAM" olarak görünür,
+    ücreti alınmaz, toplama ve KDV'ye girmez. İndirimle aynı şifre kuralı
+    geçerlidir. Kaldırmak için ikram kalemindeki × simgesine basın; adet
+    ücretli kaleme geri katılır. Gün Sonu'nda ikram adedi ve liste fiyatıyla
+    değeri görünür; satılan ürün adetlerine ikramlar girmez.
+  - Hesap yanlış kapatıldıysa (ör. 5 yerine 8 cağ yazılıp ödendi yapıldı):
+    yönetici Gün Sonu ekranında adisyona tıklar. "Düzeltmek için yeniden aç"
+    adisyonu (sebep ve şifreyle) masaya geri getirir; adet düzeltilir,
+    gerekirse fiş tekrar basılır ve "Hesap Ödendi" ile yeniden kapatılır.
+    Numara ve açılış saati aynı kalır, ödeme kaydı yenilenir. Hesap tümüyle
+    yanlışsa "İptal et" kullanılır. Her ikisi de işlem kaydına yazılır ve
+    yalnız kapatılmamış günlerde yapılabilir.
+  - "Masayı taşı": müşteri masa değiştirdiyse adisyonu boş bir masaya taşır.
+    Dolu bir masa seçilirse iki adisyon birleşir: ürünler o masaya eklenir,
+    taşınan adisyonun numarası "birleşti" olarak kayıtta kalır.
   - Yazıcı basamazsa ekranda ne yapılacağı yazar; adisyon kaybolmaz, masada
     "Basılamadı" işareti görünür. Sorunu giderip "Tekrar Dene"ye basın.
     Kâğıt fiş basılırken bittiyse yarım çıkan fişi atın; yeni rulo takınca
@@ -49,15 +90,71 @@ Test fişinde kontrol edin:
     bile program yeniden açılınca masalar aynen gelir.
 
 
-4. YÖNETİCİ ŞİFRESİ
+4. GÜN SONU (YÖNETİCİ)
+----------------------
+İş günü sabah 05:00'te başlar: gece yarısından sonra açılan masalar o günün
+cirosuna yazılır.
+Gün Sonu ekranında:
+  - Kontrol: numara atlaması (kırmızı), basılmadan kapatılan adisyonlar,
+    basıldıktan sonra iptal edilenler ve hâlâ açık masalar listelenir.
+    Sorun yoksa yeşil "Eksik adisyon yok" yazar.
+  - Ciro (KDV dahil), KDV, ödenen adisyon sayısı, ortalama adisyon, satılan
+    cağ, iptaller, yapılan indirimler (ciro indirim düşülmüş tutardır),
+    ikramlar (adet ve liste fiyatıyla değeri; ciroya girmez).
+  - Ödeme şekilleri: Nakit, Kredi Kartı ve Havale toplamları (kasa sayımı için).
+  - Garsonlara göre adisyon sayısı ve ciro; satılan ürün adetleri.
+  - Günün tüm adisyonları (saat, masa, garson, durum, ödeme şekli, tutar).
+    Satıra tıklayınca adisyonun kalemleri ve işlem geçmişi açılır; ödenmiş
+    adisyon buradan yeniden açılır ya da iptal edilir (bkz. bölüm 3).
+  - "Gün sonu fişi bas": özet termal yazıcıdan çıkar (gün kapatılmadıysa
+    "ara rapor" yazar). Bu fiş işletme içindir, müşteriye verilmez.
+  - "Günü kapat": açık masa varsa gün kapanmaz. Kapatılan gün bir daha
+    değiştirilemez; kapanışta yedek alınır ve (ayarlıysa) özet WhatsApp ile
+    gönderilir ve Google Sheets'e yazılır.
+Gün sonu alınmamış bir gün varsa Masalar ekranında sarı bir hatırlatma çıkar.
+"İşlem kaydı" düğmesi programda yapılan her işlemi (baskı, ödeme, iptal, masa
+taşıma, fiyat değişikliği, ayar) tarih ve türe göre süzerek gösterir.
+
+
+5. İSTATİSTİK VE EXCEL
+----------------------
+  - Gün, ay, yıl ya da tarih aralığı seçin. Kartlar önceki dönemle
+    karşılaştırır (ör. 1–11 Ekim ile 1–11 Eylül).
+  - Grafikler: günlük ciro, ödeme şekilleri, ürünler, seçilen ürünün günlük
+    satışı ve saatlere göre yoğunluk. Grafiğin üstüne gelince değerler çıkar.
+  - "Günlere göre" tablosu sütun başlığına tıklanarak sıralanır. Bir yıldan
+    uzun aralıklarda tablo aylara göre toplanır.
+  - "Excel'e aktar": Belgeler\Halis Adisyon Raporları klasörüne dört sayfalı
+    bir dosya yazar (Özet, Günlük, Ürünler, Adisyonlar) ve klasörü açar.
+    Belgeler klasörüne yazılamazsa dosya programın veri klasöründeki
+    Raporlar klasörüne kaydedilir; ekranda tam yeri yazar.
+  - Ciro yalnız ödenen adisyonlardan hesaplanır; iptal ve birleştirilen
+    adisyonlar ciroya girmez.
+  - "Satılan Cağ" kartındaki ürün Ayarlar > Raporlar'dan değiştirilebilir.
+
+
+6. ÜRÜNLER VE TOPLU ZAM
+-----------------------
+  - Ürünler ekranında fiyatlar KDV dahil girilir; değişiklik hemen satışa
+    yansır, geçmiş adisyonların fiyatı değişmez.
+  - "Toplu zam": yüzde yazın (indirim için eksi), yuvarlamayı seçin (1, 5 ya da
+    10 TL), ürünleri işaretleyin. Önce yeni fiyatlar gösterilir; "Uygula"ya
+    basmadan hiçbir fiyat değişmez. Açık masalardaki ürünler eski fiyatla kalır.
+
+
+7. YÖNETİCİ ŞİFRESİ
 -------------------
-Ürünler ve Ayarlar şifre ister. 5 dakika işlem olmazsa kilit kendiliğinden
-kapanır (süre Ayarlar'dan değişir).
-Adisyon iptali, basılmış bir adisyondan ürün düşmek ve basılmış adisyonun
-boşaltılması her seferinde ayrıca şifre ister (yönetici girişi açık olsa bile).
+Gün Sonu, İstatistik, Ürünler ve Ayarlar şifre ister. 5 dakika işlem olmazsa
+kilit kendiliğinden kapanır (süre Ayarlar'dan değişir).
+Adisyon iptali, basılmış bir adisyondan ürün düşmek, basılmış adisyonun
+boşaltılması, ödeme şeklini değiştirmek, ödenmiş adisyonu yeniden açmak,
+indirim ve ikram yapmak ve yedekten geri yükleme her seferinde ayrıca şifre
+ister (yönetici girişi açık olsa bile). İndirim ve ikram için şifre sorulması
+Ayarlar'daki "İndirim ve ikram için yönetici şifresi istensin" anahtarıyla
+kapatılabilir; her indirim ve ikram yine işlem kaydına yazılır.
 Basıldıktan sonra eklenen ürünler şifresiz azaltılabilir. Adisyon basıldıktan
-sonra "Geri Al" yalnızca baskıdan sonraki adımları geri alır. İptal edilen adisyon silinmez; sebebiyle
-birlikte kayıtta kalır.
+sonra "Geri Al" yalnızca baskıdan sonraki adımları geri alır. İptal edilen
+adisyon silinmez; sebebiyle birlikte kayıtta kalır.
 5 kez yanlış şifre girilirse bir süre beklenir (1 dakika; tekrarlanırsa 5, 15,
 30, 60 dakika). Programı kapatıp açmak bu bekleme süresini kaldırmaz.
 
@@ -66,36 +163,59 @@ birlikte kayıtta kalır.
 hemen Ayarlar > Yönetici şifresi bölümünden yenisini belirleyin.
 
 
-5. VERİLER VE YEDEKLER
+8. VERİLER VE YEDEKLER
 ----------------------
   - Veriler:  %LOCALAPPDATA%\HalisAdisyon\adisyon.db
               (Gezgin'in adres çubuğuna %LOCALAPPDATA%\HalisAdisyon yazıp açabilirsiniz.)
   - Yedekler: Belgeler\Halis Adisyon Yedekleri
-              Açılıştan birkaç saniye sonra, saatte bir ve program güç
-              simgesiyle kapatılırken alınır.
-              Son 24 saatlik (saatlik klasörü) ve son 60 günlük (gunluk
-              klasörü) yedek saklanır. Yedekler sıkıştırılmış .zip dosyasıdır;
-              içinde adisyon.db vardır.
+              Açılıştan birkaç saniye sonra, saatte bir, gün kapatılınca ve
+              program güç simgesiyle kapatılırken alınır.
+              Son 24 saatlik (saatlik klasörü), son 90 günlük (gunluk klasörü)
+              ve gün sonu ile geri yükleme öncesi yedekleri (ozel klasörü)
+              saklanır. Yedekler sıkıştırılmış .zip dosyasıdır; içinde
+              adisyon.db vardır.
+              Bu süreler yalnız yedek KOPYALARI içindir: adisyonlar, günler ve
+              istatistikler programın veritabanında süresiz kalır; 90 gün ya da
+              2 yıl öncesi de Gün Sonu ve İstatistik ekranlarından görülür.
   - Ayarlar > Yedek bölümünden ikinci bir yer (USB bellek) seçilebilir.
-  - Yedek alınamazsa (disk dolu, USB çıkarılmış) Masalar ekranında sarı bir
-    uyarı çıkar. Siparişler yine kaydedilir.
+  - Google Drive: bilgisayara "Google Drive" (masaüstü) programını kurup oturum
+    açın. Ayarlar > Yedek > "Google Drive klasörünü bul"a basıp çıkan klasörü
+    seçin. Günlük yedeğin kopyası Drive'daki "Halis Adisyon Yedekleri"
+    klasörüne yazılır (son 30 gün); internete Google Drive programı yükler.
+    Ekranda Drive klasörüne son kopyanın saati görünür.
+  - Yedek alınamazsa (disk dolu, USB çıkarılmış, Drive kapalı) Masalar
+    ekranında sarı bir uyarı çıkar. Siparişler yine kaydedilir.
   - Programı kaldırmak verileri ve yedekleri silmez. Yeni sürüm kurmak da
     verilere dokunmaz; güncelleme öncesi ayrıca yedek alınır.
 
-  Yedekten geri dönmek (yalnızca gerektiğinde, tercihen destek eşliğinde):
-    1) Programı kapatın.
-    2) %LOCALAPPDATA%\HalisAdisyon klasöründeki adisyon.db, adisyon.db-wal ve
-       adisyon.db-shm dosyalarını başka bir klasöre TAŞIYIN (silmeyin).
-       Bu üç dosya birlikte taşınmalıdır.
-    3) Geri dönülecek .zip yedeğini açın (sağ tık > Tümünü ayıkla); içindeki
-       adisyon.db dosyasını %LOCALAPPDATA%\HalisAdisyon klasörüne kopyalayın.
-    4) Programı açın.
-    Not: Yedekten sonra açılan adisyonlar geri dönülen kayıtta yoktur; numaraları
-    yeniden kullanılır. Bu yüzden en son yedeği seçin.
+  Yedekten geri yükleme (yalnızca gerektiğinde):
+    Ayarlar > Yedek > "Yedekten geri yükle"yi seçin, listeden yedeği seçip
+    "Geri yükle"ye basın ve yönetici şifresini girin. Program önce şu anki
+    verilerin yedeğini alır ("Geri yükleme öncesi"), seçilen yedeği kontrol
+    eder ve kendini yeniden başlatır. Şu anki veriler silinmez:
+    %LOCALAPPDATA%\HalisAdisyon\eski_veri klasörüne taşınır. Adisyon numaraları
+    geriye düşmez; kâğıtta verilmiş bir numara tekrar kullanılmaz.
+    Yanlış yedek seçtiyseniz "Geri yükleme öncesi" yedeğini geri yükleyin.
 
 
-6. SIK KARŞILAŞILAN DURUMLAR
-----------------------------
+9. GÜN SONU MESAJI: WHATSAPP VE GOOGLE SHEETS (İSTEĞE BAĞLI)
+------------------------------------------------------------
+Gün kapatılınca özet (ciro, adisyon, cağ, iptaller, ödeme şekilleri,
+garsonlar) WhatsApp'tan gönderilebilir ve Google Sheets'teki bir tabloya
+yazılabilir. İnternet yoksa sırada bekler, internet gelince gönderilir.
+Ayarlar ekranındaki "Nasıl kurulur?" bölümleri adım adım anlatır:
+  - WhatsApp: Meta'nın WhatsApp Business Platform'u (Cloud API) kullanılır.
+    Telefon numarası kimliği, kalıcı erişim anahtarı ve onaylı bir şablon
+    gerekir (şablon metni programda hazır, kopyalanır). Meta, işletmenin
+    başlattığı mesajlar için ücret alabilir.
+  - Google Sheets: tabloya Uzantılar > Apps Script ile programın verdiği kod
+    yapıştırılır ve web uygulaması olarak dağıtılır; adresi programa girilir.
+"Test mesajı gönder" ve "Bağlantıyı dene" ayarı hemen dener. Gönderilemeyen
+özetler Ayarlar'da görünür ve "Şimdi yeniden dene" ile tekrar gönderilir.
+
+
+10. SIK KARŞILAŞILAN DURUMLAR
+-----------------------------
   - Kurulumda "Windows bilgisayarınızı korudu" uyarısı: "Ek bilgi" > "Yine de
     çalıştır". (Program imzasız olduğu için Windows bu uyarıyı gösterir.)
   - "Akıllı Uygulama Denetimi bu uygulamayı engelledi" uyarısı (yalnızca bazı
@@ -106,11 +226,13 @@ hemen Ayarlar > Yönetici şifresi bölümünden yenisini belirleyin.
     yenile simgesine basın. Ya da Ethernet ile "Ağ yazıcısı"nı kullanın.
   - "Yazıcı Windows'ta çevrimdışı kullan durumunda": Windows yazıcı listesinde
     yazıcıyı açıp "Yazıcıyı çevrimdışı kullan" işaretini kaldırın.
+  - Gün kapanmıyor: açık masa vardır. Gün Sonu ekranında listelenen masaların
+    hesabını kapatın ya da iptal edin.
+  - Excel dosyası kaydedilmedi: aynı adlı rapor Excel'de açıksa program yeni
+    adla kaydeder; Belgeler\Halis Adisyon Raporları klasörüne bakın (Belgeler'e
+    yazılamadıysa %LOCALAPPDATA%\HalisAdisyon\Raporlar).
   - Program açılmıyorsa: %LOCALAPPDATA%\HalisAdisyon\kayitlar\halis.log
     dosyasını destek için gönderin. Program penceresi (WebView2) açılamazsa
     program kendiliğinden Microsoft Edge içinde açılır; çalışma aynıdır.
   - Tam ekrandan çıkmak için F11'e ya da üstteki tam ekran simgesine basın.
     Programı kapatmak için sağ üstteki güç simgesini kullanın.
-
-Bu sürümde (MVP 1) olmayanlar: gün sonu ekranı, masa taşıma, istatistik,
-Excel, WhatsApp ve Google Sheets. Bunlar sonraki sürümlerde gelecek.

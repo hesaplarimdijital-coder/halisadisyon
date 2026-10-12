@@ -22,10 +22,11 @@ func receiptBusiness(set Settings, logo image.Image) receipt.Business {
 }
 
 func (s *Service) receiptAdisyon(a *Adisyon, isCopy bool) receipt.Adisyon {
-	groups, total, _ := VATBreakdown(a.Lines)
-	r := receipt.Adisyon{No: a.No, Table: a.Table, Waiter: a.WaiterName, When: s.now(), Copy: isCopy, Total: total}
+	groups, subtotal, discount, total, _ := Breakdown(a.Lines, a.DiscountPercent)
+	r := receipt.Adisyon{No: a.No, Table: a.Table, Waiter: a.WaiterName, When: s.now(), Copy: isCopy, Total: total,
+		Subtotal: subtotal, DiscountPercent: a.DiscountPercent, Discount: discount}
 	for _, l := range a.Lines {
-		r.Lines = append(r.Lines, receipt.Line{Name: l.Name, Unit: l.Unit, Qty: l.Qty, Price: l.Price})
+		r.Lines = append(r.Lines, receipt.Line{Name: l.Name, Unit: l.Unit, Qty: l.Qty, Price: l.Price, Comp: l.Comp})
 	}
 	for _, g := range groups {
 		r.VATs = append(r.VATs, receipt.VATGroup{Rate: g.Rate, Gross: g.Gross, VAT: g.VAT})
@@ -72,7 +73,7 @@ func sameLines(a, b []Line) bool {
 	}
 	for i := range a {
 		x, y := a[i], b[i]
-		if x.ProductID != y.ProductID || x.Price != y.Price || x.VAT != y.VAT || x.Qty != y.Qty || x.Name != y.Name {
+		if x.ProductID != y.ProductID || x.Price != y.Price || x.VAT != y.VAT || x.Qty != y.Qty || x.Name != y.Name || x.Comp != y.Comp {
 			return false
 		}
 	}
@@ -98,7 +99,8 @@ func (s *Service) Print(no int64) (*PrintOutcome, *State, error) {
 }
 
 // print basma işini yapar; çağıran inPrint[no] işaretini tutar (bu sürede
-// adisyona ürün eklenemez, hesap kapatılamaz).
+// adisyona ürün eklenemez, hesap kapatılamaz). Ödeme şekli fişe yazılmaz:
+// adisyon fişi ödemeden önce basılır, ödeme şekli yalnız programda saklanır.
 func (s *Service) print(no int64) (*PrintOutcome, *State, error) {
 	s.mu.Lock()
 	a, err := loadActiveOrFail(s.db, no)
@@ -139,7 +141,7 @@ func (s *Service) print(no int64) (*PrintOutcome, *State, error) {
 		now := s.now()
 		if out.OK {
 			changed := 0
-			if !sameLines(cur.Lines, a.Lines) {
+			if !sameLines(cur.Lines, a.Lines) || cur.DiscountPercent != a.DiscountPercent {
 				changed = 1
 			}
 			if _, err := tx.Exec(`UPDATE adisyons SET status='printed', print_count=print_count+1, printed_at=?,
@@ -152,7 +154,7 @@ func (s *Service) print(no int64) (*PrintOutcome, *State, error) {
 					return err
 				}
 			}
-			_, printedTotal, _ := VATBreakdown(a.Lines)
+			_, _, _, printedTotal, _ := Breakdown(a.Lines, a.DiscountPercent)
 			audit(tx, now, "basildi", no, map[string]any{"kopya": isCopy, "sira": cur.PrintCount + 1, "tutar": printedTotal, "mod": set.Printer.Mode})
 		} else {
 			if _, err := tx.Exec(`UPDATE adisyons SET print_failed=1 WHERE no=?`, no); err != nil {

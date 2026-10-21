@@ -123,7 +123,10 @@ func clockOf(ts string) string {
 }
 
 // enqueueDayReports kapanan günün özetini gönderim sırasına koyar. s.mu tutulurken çağrılır.
-func (s *Service) enqueueDayReports(ds *DaySummary) {
+func (s *Service) enqueueDayReports(ds *DaySummary) { s.enqueueReports(ds, true) }
+
+// enqueueReports raporları sıraya koyar; withWhatsApp false ise yalnız Sheets.
+func (s *Service) enqueueReports(ds *DaySummary, withWhatsApp bool) {
 	now := s.now()
 	add := func(kind, target string, payload any) {
 		b, _ := json.Marshal(payload)
@@ -134,7 +137,7 @@ func (s *Service) enqueueDayReports(ds *DaySummary) {
 		}
 	}
 	wa := s.set.WhatsApp
-	if wa.Enabled {
+	if wa.Enabled && withWhatsApp {
 		params := whatsAppParams(ds)
 		for _, to := range wa.Recipients {
 			if to = remote.NormalizePhone(to); to != "" {

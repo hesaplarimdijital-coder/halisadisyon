@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"halisadisyon/internal/money"
 )
@@ -44,7 +45,7 @@ var auditKindOf = map[string]string{
 	"odendi": "odeme", "odeme_degisti": "odeme",
 	"adisyon_acildi": "masa", "masa_tasindi": "masa", "masa_birlesti": "masa", "garson_degisti": "masa",
 	"kalem": "kalem", "geri_al": "kalem",
-	"gun_kapatildi": "gun", "gun_sonu_gecisi": "gun", "yedek_geri_yuklendi": "gun", "geri_yukleme_hazirlandi": "gun", "gonderim": "gun", "rapor_alindi": "gun",
+	"gun_kapatildi": "gun", "gun_yeniden_acildi": "gun", "gun_duzeltildi": "gun", "is_gunu_degisti": "gun", "kayma_yoksayildi": "gun", "gun_sonu_gecisi": "gun", "yedek_geri_yuklendi": "gun", "geri_yukleme_hazirlandi": "gun", "gonderim": "gun", "rapor_alindi": "gun",
 	"ayar_degisti": "ayar", "logo": "ayar", "kategori_eklendi": "ayar", "kategori_degisti": "ayar",
 	"kategori_silindi": "ayar", "garson_eklendi": "ayar", "garson_kaldirildi": "ayar", "otomatik_baslat": "ayar",
 	"kurulum_tamamlandi": "ayar", "ilk_acilis": "ayar",
@@ -59,7 +60,8 @@ var auditLabels = map[string]string{
 	"odendi": "Hesap ödendi", "odeme_degisti": "Ödeme şekli değişti",
 	"adisyon_acildi": "Masa açıldı", "masa_tasindi": "Masa taşındı", "masa_birlesti": "Masalar birleşti", "garson_degisti": "Garson değişti",
 	"kalem": "Kalem", "geri_al": "Geri alındı",
-	"gun_kapatildi": "Gün kapatıldı", "yedek_geri_yuklendi": "Yedekten geri yüklendi", "gonderim": "Gönderim",
+	"gun_kapatildi": "Gün kapatıldı", "gun_yeniden_acildi": "Gün yeniden açıldı", "gun_duzeltildi": "Kaymış adisyonlar düzeltildi",
+	"is_gunu_degisti": "İş günü değişti", "kayma_yoksayildi": "Kayma böyle bırakıldı", "yedek_geri_yuklendi": "Yedekten geri yüklendi", "gonderim": "Gönderim",
 	"geri_yukleme_hazirlandi": "Geri yükleme başlatıldı", "rapor_alindi": "Excel raporu", "gun_sonu_gecisi": "Sürüm geçişi",
 	"ayar_degisti": "Ayar değişti", "logo": "Logo", "kategori_eklendi": "Kategori eklendi", "kategori_degisti": "Kategori değişti",
 	"kategori_silindi": "Kategori silindi", "garson_eklendi": "Garson eklendi", "garson_kaldirildi": "Garson kaldırıldı",
@@ -232,6 +234,27 @@ func describeAudit(action string, no int64, d map[string]any) string {
 		return fmt.Sprintf("%%%s · %s ürün", trimFloat(d["yuzde"]), dStr(d, "urun"))
 	case "gun_kapatildi":
 		return fmt.Sprintf("%s · ciro %s · %s adisyon · %s iptal", dateTRLong(dStr(d, "tarih")), dMoney(d, "ciro"), dStr(d, "adisyon"), dStr(d, "iptal"))
+	case "gun_yeniden_acildi":
+		t := fmt.Sprintf("%s · sebep: %s", dateTRLong(dStr(d, "tarih")), dStr(d, "sebep"))
+		if k := dStr(d, "kapanis"); k != "" {
+			if at, err := time.Parse(time.RFC3339, k); err == nil {
+				t += " · " + at.In(time.Local).Format("02.01 15:04") + "'te kapatılmıştı"
+			}
+		}
+		return t + fmt.Sprintf(" · ciro %s, %s adisyon", dMoney(d, "ciro"), dStr(d, "adisyon"))
+	case "gun_duzeltildi":
+		t := dStr(d, "metin") + " · sebep: " + dStr(d, "sebep")
+		if v, ok := d["acilan"].([]any); ok && len(v) > 0 {
+			t += " · yeniden açılan: " + dateList(v)
+		}
+		if v, ok := d["yeniden_hesaplanan"].([]any); ok && len(v) > 0 {
+			t += " · özeti yeniden hesaplanan: " + dateList(v)
+		}
+		return t
+	case "is_gunu_degisti":
+		return fmt.Sprintf("%s → %s · sebep: %s", dateTRLong(dStr(d, "eski")), dateTRLong(dStr(d, "yeni")), dStr(d, "sebep"))
+	case "kayma_yoksayildi":
+		return fmt.Sprintf("%s'de açılıp %s'e yazılan adisyonlar böyle bırakıldı", dateTRLong(dStr(d, "dogru")), dateTRLong(dStr(d, "eski")))
 	case "yedek_geri_yuklendi":
 		t := "Dosya: " + dStr(d, "dosya")
 		if n, ok := dNum(d, "en_buyuk_no"); ok && n > 0 {
@@ -467,4 +490,12 @@ func (s *Service) ChangePayment(no int64, method, pin string) (*State, error) {
 		return nil, err
 	}
 	return s.stateLocked()
+}
+
+func dateList(v []any) string {
+	parts := make([]string, 0, len(v))
+	for _, x := range v {
+		parts = append(parts, dateTRLong(fmt.Sprint(x)))
+	}
+	return strings.Join(parts, ", ")
 }

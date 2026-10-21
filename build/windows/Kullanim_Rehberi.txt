@@ -1,4 +1,4 @@
-HALİS ADİSYON 2.2.0 · KISA KULLANIM REHBERİ
+HALİS ADİSYON 2.2.1 · KISA KULLANIM REHBERİ
 ============================================
 
 1. İLK AÇILIŞ
@@ -14,6 +14,8 @@ Eski sürüm kuruluysa yenisini üzerine kurun: masalar, adisyonlar, ürünler v
 ayarlar aynen kalır; güncellemeden önce verilerin ayrıca yedeği alınır.
 2.1.0'da gelenler: yüzde indirim, ödenmiş adisyonu düzeltme (yeniden açma) ve
 iptal, günlük yedeklerin 90 gün saklanması. 2.2.0: ikram kalemi.
+2.2.1: yanlışlıkla kapatılan günü yeniden açma ve yanlış güne yazılan
+adisyonları düzeltme (bölüm 4).
 
 
 2. YAZICI (KODDATA KPS80)
@@ -108,10 +110,29 @@ Gün Sonu ekranında:
     adisyon buradan yeniden açılır ya da iptal edilir (bkz. bölüm 3).
   - "Gün sonu fişi bas": özet termal yazıcıdan çıkar (gün kapatılmadıysa
     "ara rapor" yazar). Bu fiş işletme içindir, müşteriye verilmez.
-  - "Günü kapat": açık masa varsa gün kapanmaz. Kapatılan gün bir daha
+  - "Günü kapat": açık masa varsa gün kapanmaz. Kapatılan günün adisyonları
     değiştirilemez; kapanışta yedek alınır ve (ayarlıysa) özet WhatsApp ile
-    gönderilir ve Google Sheets'e yazılır.
+    gönderilir ve Google Sheets'e yazılır. Gün sonunu GÜN BİTİNCE alın:
+    kapatıldıktan sonra açılan adisyonlar ertesi güne yazılır. Bugün
+    kapatılırken program saati gösterip ayrıca uyarır.
+  - "Günü yeniden aç" (kapatılmış günde): yönetici şifresi ve sebep ister.
+    Bugün açılırsa yeni adisyonlar yine bugüne yazılır. Geçmiş bir gün
+    açılırsa o günün adisyonları düzeltilir, sonra gün yeniden kapatılır.
 Gün sonu alınmamış bir gün varsa Masalar ekranında sarı bir hatırlatma çıkar.
+
+GÜN YANLIŞLIKLA ERKEN KAPATILDIYSA
+Örnek: 19 Ekim öğlen gün kapatıldı; öğleden sonraki adisyonlar 20 Ekim'e
+yazıldı. Masalar ekranında "yeni adisyonlar 20 Ekim gününe yazılıyor" uyarısı
+çıkar. Gün Sonu ekranının üstünde "Yanlış güne yazılmış adisyonlar" kutusu
+hangi gün açılan kaç adisyonun hangi güne yazıldığını gösterir.
+  1) "Düzelt"e basın, düzeltilecek satırları seçin, sebep yazın.
+  2) "Doğru güne taşı"ya basın ve yönetici şifresini girin.
+Adisyonlar açıldıkları güne taşınır; numara, saat ve tutar değişmez.
+Geçmiş günlerin özeti yeniden hesaplanır ve kapalı kalır (gün sonu fişinde
+"Düzeltildi" yazar; WhatsApp ve Sheets'e düzeltilmiş hali yeniden gider).
+Bugün yanlışlıkla kapatılmışsa bugün yeniden açılır. Düzeltmeden önce ayrı
+bir yedek alınır. Gece gün sonu alındıktan sonra gelen müşteri bilerek ertesi
+güne yazıldıysa o satırda "Böyle kalsın" deyin.
 "İşlem kaydı" düğmesi programda yapılan her işlemi (baskı, ödeme, iptal, masa
 taşıma, fiyat değişikliği, ayar) tarih ve türe göre süzerek gösterir.
 

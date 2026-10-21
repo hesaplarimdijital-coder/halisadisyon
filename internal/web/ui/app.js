@@ -422,7 +422,9 @@ function scTables() {
   }
   const bk = S.backup || {};
   const un = S.unclosedDays || [];
-  const warn = (S.notice ? '<div class="note info" role="status">' + ic('info') + '<p><strong>' + esc(S.notice) + '</strong></p></div>' : '') +
+  const ahead = S.clockDate && S.businessDate > S.clockDate;
+  const warn = (ahead ? '<div class="note warn" role="status" id="ahead-note">' + ic('moon') + '<p><strong>Bugünün (' + esc(dateLong(S.clockDate)) + ') gün sonu alınmış; yeni adisyonlar ' + esc(dateLong(S.businessDate)) + ' gününe yazılıyor.</strong> Gün bitmeden yanlışlıkla kapatıldıysa yönetici Gün Sonu’ndan “Günü yeniden aç” ile geri alabilir.</p><button type="button" class="btn btn-md" data-act="goto-day" data-d="' + esc(S.clockDate) + '">' + ic('moon', 20) + 'Gün Sonu’na git</button></div>' : '') +
+    (S.notice ? '<div class="note info" role="status">' + ic('info') + '<p><strong>' + esc(S.notice) + '</strong></p></div>' : '') +
     (un.length ? '<div class="note warn" role="status">' + ic('moon') + '<p><strong>Gün sonu alınmamış ' + (un.length === 1 ? 'gün' : un.length + ' gün') + ':</strong> ' + un.slice(0, 3).map(d => esc(dateLong(d))).join(', ') + (un.length > 3 ? ' …' : '') + '. Yönetici gün sonunu alıp günü kapatmalı.</p><button type="button" class="btn btn-md" data-act="goto-day" data-d="' + esc(un[un.length - 1]) + '">' + ic('moon', 20) + 'Gün Sonu’na git</button></div>' : '') +
     (bk.lastError ? '<div class="note warn" role="status">' + ic('alert') + '<p><strong>Yedek alınamadı.</strong> ' + esc(bk.lastError) + ' Siparişler kayıtlı; yöneticiye haber verin.</p></div>' : '') +
     (bk.secondError ? '<div class="note warn" role="status">' + ic('alert') + '<p><strong>USB yedeği:</strong> ' + esc(bk.secondError) + '</p></div>' : '') +
@@ -538,7 +540,7 @@ function scDay() {
   const head = '<div class="page-head"><div class="ttl"><h1>Gün sonu</h1><p class="muted">' + esc(dateLong(date)) + (D && D.date === date ? (D.closed ? (D.migrated ? ' · <strong>1.0.0 verisi</strong>' : ' · <strong>kapatıldı ' + esc(stampText(D.closedAt)) + '</strong>') : ' · gün açık') : '') + '</p></div>' + nav + '</div>';
   if (!D || D.date !== date) return head + '<div class="card pad"><p class="muted">' + (ui.day.loading ? 'Yükleniyor…' : 'Gün özeti okunamadı.') + '</p></div>';
   const actions = '<div class="row"><button type="button" class="btn" data-act="day-print">' + ic('printer') + (D.closed ? 'Gün sonu fişi bas' : 'Ara rapor bas') + '</button><button type="button" class="btn" data-act="day-preview">' + ic('eye') + 'Fiş önizlemesi</button><button type="button" class="btn" data-act="nav" data-to="kayit">' + ic('history') + 'İşlem kaydı</button>' +
-    (D.closed ? '<span class="pill good">' + ic('lock', 16) + (D.migrated ? '1.0.0 verisi · kapatılmış sayıldı' : 'Gün kapatıldı; değiştirilemez') + '</span>'
+    (D.closed ? '<span class="pill good" style="margin-left:auto">' + ic('lock', 16) + (D.migrated ? '1.0.0 verisi · kapatılmış sayıldı' : D.corrected ? 'Gün kapalı · düzeltildi' : 'Gün kapatıldı') + '</span><button type="button" class="btn" data-act="day-reopen">' + ic('undo') + 'Günü yeniden aç</button>'
       : date > (S.clockDate || today) ? '<span class="pill quiet" style="margin-left:auto">' + ic('info', 16) + 'Bu gün henüz başlamadı; gün sonu gün bitince alınır</span>'
       : '<button type="button" class="btn btn-primary" data-act="day-close" style="margin-left:auto">' + ic('moon') + 'Günü kapat</button>') + '</div>';
   const un = (D.unclosed || []).filter(x => x !== date);
@@ -565,7 +567,7 @@ function scDay() {
   const cancels = (D.rows || []).filter(r => r.status === 'cancelled' && !r.mergedInto);
   const cancelCard = cancels.length ? '<section class="card stack" style="padding:16px 0 4px;gap:10px"><div class="card-head" style="padding:0 18px"><h2>İptaller</h2><span class="muted small">' + cancels.length + ' adisyon · ' + TL(D.cancelledTotal) + '</span></div><div class="tablebox"><table class="data"><thead><tr><th>No</th><th>Saat</th><th>Masa</th><th>Garson</th><th>Sebep</th><th class="r">Tutar</th></tr></thead><tbody>' +
     cancels.map(r => '<tr class="click" data-act="detail" data-no="' + r.no + '" tabindex="0"><td><strong>' + r.no + '</strong></td><td>' + hm(r.closedAt || r.openedAt) + '</td><td>Masa ' + r.table + '</td><td>' + esc(r.waiter) + '</td><td>' + esc(r.cancelReason || '') + (r.printCount ? ' <span class="pill warn" style="padding:1px 8px">' + ic('printer', 14, 2.2) + 'basılmıştı</span>' : '') + '</td><td class="r">' + TL(r.total) + '</td></tr>').join('') + '</tbody></table></div></section>' : '';
-  return head + actions + unNote + '<section class="card pad stack"><h2 class="sec-title">Kontrol</h2>' + warnHTML + '</section>' + kpis + '<div class="grid-3">' + pay + waiters + prods + '</div>' + cancelCard + table;
+  return head + actions + shiftedHTML(D.shifted || []) + unNote + '<section class="card pad stack"><h2 class="sec-title">Kontrol</h2>' + warnHTML + '</section>' + kpis + '<div class="grid-3">' + pay + waiters + prods + '</div>' + cancelCard + table;
 }
 // Gün listesinin altındaki toplamlar: ödenenler ödeme şekline göre, diğerleri adet ve tutar.
 function dayTotals(rows, f, D) {
@@ -616,6 +618,7 @@ async function showDetail(no) {
     title: 'Adisyon No ' + a.no,
     wide: true,
     body: '<div class="row">' + pills + (d.dayClosed ? '<span class="pill quiet">' + ic('lock', 15) + 'Gün kapatıldı</span>' : '') + '</div>' + kv +
+      (a.status === 'paid' && d.dayClosed ? '<div class="note info"><p>Bu adisyonun günü kapatıldığı için değiştirilemez. Düzeltmek gerekirse önce Gün Sonu’ndan <strong>“Günü yeniden aç”</strong> (yönetici şifresi) ile günü açın.</p></div>' : '') +
       (canChange ? '<div class="note info"><p><strong>Yanlış kapatıldıysa:</strong> “Düzeltmek için yeniden aç” adisyonu masaya geri getirir; adet düzeltilir, gerekirse tekrar basılır ve yeniden ödenir. “İptal et” hesabı tümüyle iptal eder. İkisi de yönetici şifresi ister ve işlem kaydına yazılır.</p></div>' : '') + lines + hist,
     actions: [{ label: 'Fiş önizlemesi', icon: 'eye', onClick: async () => { const p = await act('preview', { no: a.no }); if (p) showPreview(p.data.image, 'No ' + a.no + ' · fiş önizlemesi', 'Ödeme şekli fişte yer almaz.', () => showDetail(a.no)); } }]
       .concat(canChange ? [{ label: 'Düzeltmek için yeniden aç', icon: 'undo', onClick: () => reopenFlow(a) }, { label: 'İptal et', kind: 'btn-danger-quiet', icon: 'lock', onClick: () => cancelFlowFor(a, async () => { toast('No ' + a.no + ' iptal edildi.'); await loadDay(); }) }] : [])
@@ -710,16 +713,19 @@ function closeDayFlow() {
     openModal({ title: 'Açık masa var', body: '<div class="err-box">' + ic('alert', 30, 2.2) + '<div><strong>' + D.open + ' masa hâlâ açık.</strong><p>Gün kapatılmadan önce bu hesapları kapatın ya da iptal edin: ' + D.rows.filter(r => r.status === 'open' || r.status === 'printed').map(r => 'Masa ' + r.table + ' (No ' + r.no + ')').join(', ') + '</p></div></div>', actions: [{ label: 'Tamam', kind: 'btn-primary', onClick: () => closeModal() }] });
     return;
   }
+  const running = D.date === S.clockDate;
+  const now = new Date();
+  const early = running ? '<div class="err-box early-box">' + ic('alert', 30, 2.2) + '<div><strong>Bugünü kapatıyorsunuz. Saat ' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + '.</strong><p>Kapattıktan sonra açılan adisyonlar <strong>' + esc(dateLong(addDays(D.date, 1))) + '</strong> gününe yazılır. Bugün başka müşteri gelmeyecekse kapatın. Yanlışlıkla kapatılırsa “Günü yeniden aç” ile geri alınır.</p></div></div>' : '';
   const sends = [];
   if (S.whatsapp && S.whatsapp.enabled) sends.push('WhatsApp');
   if (S.sheets && S.sheets.enabled) sends.push('Google Sheets');
   openModal({
-    title: dateLong(D.date) + ' kapatılsın mı?',
-    body: '<dl class="kv"><dt>Ciro</dt><dd>' + TL(D.revenue) + '</dd><dt>Ödenen adisyon</dt><dd>' + D.paid + '</dd><dt>İptal</dt><dd>' + D.cancelled + (D.cancelled ? ' · ' + TL(D.cancelledTotal) : '') + '</dd>' + (D.discounts ? '<dt>İndirim</dt><dd>' + D.discounts + ' adisyon · −' + TL(D.discountTotal) + '</dd>' : '') + '</dl>' +
+    title: (running ? 'Bugün · ' : '') + dateLong(D.date) + ' kapatılsın mı?',
+    body: early + '<dl class="kv"><dt>Ciro</dt><dd>' + TL(D.revenue) + '</dd><dt>Ödenen adisyon</dt><dd>' + D.paid + '</dd><dt>İptal</dt><dd>' + D.cancelled + (D.cancelled ? ' · ' + TL(D.cancelledTotal) : '') + '</dd>' + (D.discounts ? '<dt>İndirim</dt><dd>' + D.discounts + ' adisyon · −' + TL(D.discountTotal) + '</dd>' : '') + '</dl>' +
       ((D.warnings || []).length ? '<div class="note warn">' + ic('alert') + '<p>' + D.warnings.length + ' uyarı var; kapatmadan önce “Kontrol” bölümüne bakın.</p></div>' : '') +
-      '<p>Kapatılan gün değiştirilemez. Kapanışta yedek alınır' + (sends.length ? '; özet ' + sends.join(' ve ') + ' ile gönderilir (internet yoksa sırada bekler)' : '') + '.</p>' +
+      '<p>Kapatılan günün adisyonları değiştirilemez; gerekirse gün yönetici şifresiyle yeniden açılır. Kapanışta yedek alınır' + (sends.length ? '; özet ' + sends.join(' ve ') + ' ile gönderilir (internet yoksa sırada bekler)' : '') + '.</p>' +
       '<label class="switch-row" for="close-print"><span>Gün sonu fişini bas</span><input class="switch" type="checkbox" id="close-print" checked></label>',
-    actions: [{ label: 'Vazgeç', onClick: () => closeModal() }, { label: 'Günü kapat', kind: 'btn-primary', icon: 'moon', onClick: async () => {
+    actions: [{ label: 'Vazgeç', onClick: () => closeModal() }, { label: running ? 'Evet, bugünü kapat' : 'Günü kapat', kind: 'btn-primary', icon: 'moon', onClick: async () => {
       const pr = checked('close-print');
       closeModal(true);
       const r = await act('closeDay', { date: D.date });
@@ -731,6 +737,80 @@ function closeDayFlow() {
       loadDay(D.date);
     } }]
   });
+}
+// Kapatılmış günü yeniden açar (yönetici şifresi + sebep).
+function reopenDayFlow() {
+  const D = ui.day.data; if (!D || !D.closed) return;
+  const today = D.date === S.clockDate;
+  const past = D.date < S.clockDate;
+  openModal({
+    title: dateLong(D.date) + ' yeniden açılsın mı?',
+    body: '<p>' + (today ? 'Gün yeniden açılınca yeni adisyonlar yine <strong>bugüne (' + esc(dateLong(D.date)) + ')</strong> yazılır. Gün bitince yeniden kapatırsınız.'
+      : past ? 'Geçmiş gün açılınca o günün adisyonları düzeltilebilir (yeniden açma, iptal, ödeme şekli). Yeni adisyonlar bugüne yazılmaya devam eder. Düzeltmeden sonra günü yeniden kapatın; özet yeniden hesaplanır ve yeniden gönderilir.'
+      : 'Gün yeniden açılır.') + '</p>' +
+      '<p class="muted">Yönetici şifresi sorulur; işlem kaydına yazılır. Adisyon numaraları değişmez.</p>' +
+      '<div class="fields"><div class="field"><label for="reopen-day-reason">Sebep</label><input class="input" type="text" id="reopen-day-reason" maxlength="200" placeholder="Örnek: Gün öğlen yanlışlıkla kapatıldı" data-autofocus></div></div>',
+    actions: [{ label: 'Vazgeç', onClick: () => closeModal() }, { label: 'Günü yeniden aç', kind: 'btn-primary', icon: 'undo', onClick: async () => {
+      const reason = val('reopen-day-reason').trim();
+      if (!reason) { toast('Sebep yazın.', 'bad'); document.getElementById('reopen-day-reason').focus(); return; }
+      closeModal(true);
+      const r = await act('reopenDay', { date: D.date, reason });
+      if (!r) return;
+      ui.day.data = r.data;
+      toast(dateLong(D.date) + ' yeniden açıldı.', 'good');
+      render();
+    } }]
+  });
+}
+// Kaymış adisyonlar: açıldığı günden sonraki bir güne yazılmış adisyon grupları.
+function shiftGroupText(g) {
+  return '<strong>' + esc(dateLong(g.to)) + '</strong> günü açılan <strong>' + g.count + ' adisyon</strong> ' + esc(dateLong(g.from)) + ' gününe yazılmış';
+}
+function shiftGroupSub(g) {
+  return 'Saat ' + hm(g.firstAt) + (g.count > 1 ? '–' + hm(g.lastAt) : '') + ' · ' + g.paid + ' ödenen, ' + TL(g.total) + (g.active ? ' · ' + g.active + ' masa açık' : '') + (g.toClosed && g.toClosedAt ? ' · ' + esc(dateLong(g.to)) + ' ' + esc(stampText(g.toClosedAt)) + '’de kapatılmış' : '');
+}
+function shiftedHTML(list) {
+  if (!list.length) return '';
+  const n = list.reduce((a, g) => a + g.count, 0);
+  return '<section class="card pad stack shift-card" id="shift-card"><div class="card-head"><h2>' + ic('alert', 24, 2.2) + ' Yanlış güne yazılmış adisyonlar</h2><button type="button" class="btn btn-primary" data-act="shift-fix">' + ic('undo') + 'Düzelt</button></div>' +
+    '<p class="muted">Gün sonu gün bitmeden alınınca o günün sonraki adisyonları ertesi güne yazılır. Toplam ' + n + ' adisyon açıldığı günden farklı bir güne yazılmış.</p>' +
+    '<ul class="shift-list">' + list.map(g => '<li><span>' + shiftGroupText(g) + '<br><span class="muted small">' + shiftGroupSub(g) + '</span></span><button type="button" class="linkish" data-act="shift-ignore" data-from="' + esc(g.from) + '" data-to="' + esc(g.to) + '">Böyle kalsın</button></li>').join('') + '</ul></section>';
+}
+function shiftFixFlow() {
+  const D = ui.day.data; const list = (D && D.shifted) || [];
+  if (!list.length) return;
+  const today = S.clockDate;
+  const effects = all => {
+    const pick = list.filter((g, i) => all || checked('shift-' + i));
+    const days = new Set(); pick.forEach(g => { days.add(g.from); days.add(g.to); });
+    const closed = new Set(); pick.forEach(g => { if (g.fromClosed) closed.add(g.from); if (g.toClosed) closed.add(g.to); });
+    const reclose = [...days].filter(d => closed.has(d) && d < today).sort();
+    const reopen = [...days].filter(d => closed.has(d) && d >= today).sort();
+    return '<ul class="plain">' + (reclose.length ? '<li>' + ic('check', 18, 2.4) + ' Özeti yeniden hesaplanıp kapalı kalacak: <strong>' + reclose.map(d => esc(dateLong(d))).join(', ') + '</strong>' + ((S.whatsapp && S.whatsapp.enabled) || (S.sheets && S.sheets.enabled) ? ' (raporlar düzeltilmiş haliyle yeniden gönderilir)' : '') + '</li>' : '') +
+      (reopen.length ? '<li>' + ic('undo', 18, 2.2) + ' Yeniden açılacak (gün henüz bitmedi): <strong>' + reopen.map(d => esc(dateLong(d))).join(', ') + '</strong></li>' : '') +
+      '<li>' + ic('lock', 18, 2.2) + ' Numaralar, saatler ve tutarlar değişmez; düzeltmeden önce ayrıca yedek alınır.</li></ul>';
+  };
+  openModal({
+    title: 'Adisyonları doğru güne taşı',
+    wide: true,
+    body: '<p>Seçilen adisyonlar açıldıkları güne taşınır.</p><div class="stack" style="gap:6px">' + list.map((g, i) => '<label class="switch-row" for="shift-' + i + '"><span>' + shiftGroupText(g) + '<br><span class="muted small">' + shiftGroupSub(g) + '</span></span><input class="switch" type="checkbox" id="shift-' + i + '" data-shift="1" checked></label>').join('') + '</div>' +
+      '<div id="shift-effects">' + effects(true) + '</div>' +
+      '<div class="fields"><div class="field"><label for="shift-reason">Sebep</label><input class="input" type="text" id="shift-reason" maxlength="200" placeholder="Örnek: Gün öğlen yanlışlıkla kapatıldı"></div></div>' +
+      '<p class="muted">Yönetici şifresi sorulur; her adisyonun işlem geçmişine yazılır.</p>',
+    actions: [{ label: 'Vazgeç', onClick: () => closeModal() }, { label: 'Doğru güne taşı', kind: 'btn-primary', icon: 'undo', onClick: () => once('shift-fix', async () => {
+      const pairs = list.filter((g, i) => checked('shift-' + i)).map(g => ({ from: g.from, to: g.to }));
+      if (!pairs.length) { toast('En az bir satır seçin.', 'bad'); return; }
+      const reason = val('shift-reason').trim();
+      if (!reason) { toast('Sebep yazın.', 'bad'); document.getElementById('shift-reason').focus(); return; }
+      closeModal(true);
+      const r = await act('fixShifted', { pairs, reason });
+      if (!r) return;
+      const x = r.data;
+      toast(x.moved + ' adisyon doğru güne taşındı' + (x.reopened.length ? '; ' + x.reopened.map(dateLong).join(', ') + ' yeniden açıldı' : '') + '.', 'good');
+      await loadDay(pairs[0].to);
+    }) }]
+  });
+  modal.onShift = () => { const el = document.getElementById('shift-effects'); if (el) el.innerHTML = effects(); };
 }
 async function printDay(date) {
   const r = await act('printDay', { date });
@@ -1791,6 +1871,9 @@ const ACT = {
   'day-today': () => loadDay(''),
   'day-filter': el => { ui.day.filter = el.dataset.f; render(); },
   'day-close': () => closeDayFlow(),
+  'day-reopen': () => reopenDayFlow(),
+  'shift-fix': () => shiftFixFlow(),
+  'shift-ignore': el => openModal({ title: 'Böyle kalsın mı?', body: '<p>' + esc(dateLong(el.dataset.to)) + ' günü açılıp ' + esc(dateLong(el.dataset.from)) + ' gününe yazılan adisyonlar olduğu gibi kalır ve bu uyarı bir daha çıkmaz. Örneğin gün sonu gece alındıktan sonra gelen müşteri bilerek ertesi güne yazıldıysa seçin.</p>', actions: [{ label: 'Vazgeç', onClick: () => closeModal() }, { label: 'Böyle kalsın', kind: 'btn-primary', onClick: async () => { closeModal(true); if (await act('ignoreShift', { from: el.dataset.from, to: el.dataset.to })) { toast('Uyarı kaldırıldı.'); loadDay(); } } }] }),
   'day-print': () => once('day-print', () => printDay(ui.day.date)),
   'day-preview': async () => { const r = await act('dayPreview', { date: ui.day.date }); if (r) showPreview(r.data.image, 'Gün sonu fişi önizlemesi', 'İşletme içi rapordur; müşteriye verilmez.'); },
   'detail': el => showDetail(Number(el.dataset.no)),
@@ -1933,6 +2016,7 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', async e => {
   const el = e.target;
+  if (el.dataset && el.dataset.shift) { if (modal && modal.onShift) modal.onShift(); return; }
   if (el.dataset && el.dataset.biz) { saveBusiness(el); return; }
   if (el.dataset && el.dataset.pf) { savePrinter(el.dataset.pf); return; }
   if (el.dataset && el.dataset.catName) {

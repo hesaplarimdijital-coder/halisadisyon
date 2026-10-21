@@ -606,6 +606,34 @@ func (s *Server) call(name string, body []byte) (any, *core.State, error) {
 		}
 		ds, st, err := svc.CloseDay(req.Date)
 		return ds, st, err
+	case "reopenDay":
+		req, err := decode[struct {
+			Date   string `json:"date"`
+			Reason string `json:"reason"`
+			Pin    string `json:"pin"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		ds, st, err := svc.ReopenDay(req.Date, req.Reason, req.Pin)
+		return ds, st, err
+	case "fixShifted":
+		req, err := decode[struct {
+			Pairs  []core.ShiftPair `json:"pairs"`
+			Reason string           `json:"reason"`
+			Pin    string           `json:"pin"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		res, st, err := svc.FixShifted(req.Pairs, req.Reason, req.Pin)
+		return res, st, err
+	case "ignoreShift":
+		req, err := decode[core.ShiftPair](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		return map[string]bool{"ok": true}, nil, svc.IgnoreShift(req)
 	case "dayPreview":
 		req, err := decode[struct {
 			Date string `json:"date"`

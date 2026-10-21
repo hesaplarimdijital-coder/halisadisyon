@@ -12,7 +12,7 @@ import (
 // dayReport gün özetini gün sonu fişine çevirir.
 func (s *Service) dayReport(ds *DaySummary) receipt.DayReport {
 	r := receipt.DayReport{
-		Printed: s.now(), Closed: ds.Closed, FirstNo: ds.FirstNo, LastNo: ds.LastNo,
+		Printed: s.now(), Closed: ds.Closed, Corrected: ds.Corrected, FirstNo: ds.FirstNo, LastNo: ds.LastNo,
 		Paid: ds.Paid, Cancelled: ds.Cancelled, CancelledTotal: ds.CancelledTotal, Merged: ds.Merged, Open: ds.Open,
 		Discounts: ds.Discounts, DiscountTotal: ds.DiscountTotal, Comps: ds.Comps, CompValue: ds.CompValue,
 		Revenue: ds.Revenue, Avg: ds.Avg,

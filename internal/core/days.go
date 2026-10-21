@@ -103,8 +103,8 @@ type ProductQty struct {
 	ProductID int64  `json:"productId"`
 	Name      string `json:"name"`
 	Unit      string `json:"unit"`
-	Qty       int    `json:"qty"`   // satılan adet (ikram hariç)
-	Total     int64  `json:"total"` // satılan tutar
+	Qty       int    `json:"qty"`            // satılan adet (ikram hariç)
+	Total     int64  `json:"total"`          // satılan tutar
 	Comp      int    `json:"comp,omitempty"` // ikram adedi
 }
 
@@ -168,6 +168,10 @@ type DaySummary struct {
 	Warnings       []DayWarning  `json:"warnings"`
 	NoMissing      bool          `json:"noMissing"` // numara atlaması yok
 	Unclosed       []string      `json:"unclosed"`  // gün sonu alınmamış önceki günler
+	// Corrected: kapandıktan sonra kaymış adisyonlar taşınıp özet yeniden hesaplandı.
+	Corrected bool `json:"corrected,omitempty"`
+	// Shifted: açıldığı günden sonraki bir güne yazılmış adisyon grupları (gün erken kapatıldıysa).
+	Shifted []ShiftGroup `json:"shifted"`
 }
 
 func statusText(a *Adisyon) string {
@@ -221,7 +225,7 @@ func (s *Service) featuredProduct(q querier) (int64, error) {
 // daySummary bir iş gününün özetini veritabanından hesaplar.
 func (s *Service) daySummary(q querier, date string) (*DaySummary, error) {
 	ds := &DaySummary{Date: date, ByPayment: []PayTotal{}, ByWaiter: []WaiterTotal{}, Products: []ProductQty{}, Rows: []DayRow{},
-		Warnings: []DayWarning{}, VATs: []VATGroup{}}
+		Warnings: []DayWarning{}, VATs: []VATGroup{}, Shifted: []ShiftGroup{}}
 	closed, closedAt, err := dayClosed(q, date)
 	if err != nil {
 		return nil, err
@@ -231,6 +235,12 @@ func (s *Service) daySummary(q querier, date string) (*DaySummary, error) {
 		var summary sql.NullString
 		_ = q.QueryRow(`SELECT summary FROM business_days WHERE date=?`, date).Scan(&summary)
 		ds.Migrated = summary.String == `{"gecis":true}`
+		var meta struct {
+			Corrected bool `json:"corrected"`
+		}
+		if json.Unmarshal([]byte(summary.String), &meta) == nil {
+			ds.Corrected = meta.Corrected
+		}
 	}
 	list, err := loadDayAdisyons(q, date)
 	if err != nil {
@@ -491,6 +501,9 @@ func (s *Service) DaySummary(date string) (*DaySummary, error) {
 	if ds.Unclosed, err = unclosedDays(s.db, cur); err != nil {
 		return nil, err
 	}
+	if ds.Shifted, err = shiftedGroups(s.db, s.now(), false); err != nil {
+		return nil, err
+	}
 	return ds, nil
 }
 
@@ -557,6 +570,7 @@ func (s *Service) CloseDay(date string) (*DaySummary, *State, error) {
 	if ds.Unclosed == nil {
 		ds.Unclosed = []string{}
 	}
+	ds.Shifted, _ = shiftedGroups(s.db, s.now(), false)
 	st, err := s.stateLocked()
 	s.mu.Unlock()
 	// Kapanış yedeği arka planda (siparişleri bekletmez). Günün kapanış hali

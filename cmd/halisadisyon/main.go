@@ -28,7 +28,7 @@ import (
 	"halisadisyon/internal/web"
 )
 
-var version = "2.2.0"
+var version = "2.2.1"
 
 func init() {
 	// Pencere ve mesaj döngüsü aynı işletim sistemi iş parçacığında kalmalı.

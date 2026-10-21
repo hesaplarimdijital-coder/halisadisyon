@@ -29,6 +29,7 @@ type DayReport struct {
 	Date           time.Time // iş günü
 	Printed        time.Time
 	Closed         bool
+	Corrected      bool // kapandıktan sonra kaymış adisyonlar taşınıp yeniden hesaplandı
 	ClosedAt       time.Time
 	FirstNo        int64
 	LastNo         int64
@@ -75,7 +76,11 @@ func RenderDaySummary(b Business, d DayReport, width int) (*image.Gray, error) {
 	c.fitLine(DateLong(d.Date), semibold, 27*sf, center, 0, int(6*sf))
 	small := face(regular, 22*sf)
 	if d.Closed {
-		c.line("Gün kapatıldı: "+d.ClosedAt.Format("02.01.2006 15:04"), small, center, 0, int(2*sf))
+		if d.Corrected {
+			c.line("Düzeltildi: "+d.ClosedAt.Format("02.01.2006 15:04"), small, center, 0, int(2*sf))
+		} else {
+			c.line("Gün kapatıldı: "+d.ClosedAt.Format("02.01.2006 15:04"), small, center, 0, int(2*sf))
+		}
 	} else {
 		c.gap(int(4 * sf))
 		c.boxed("ARA RAPOR · GÜN KAPATILMADI", face(bold, 22*sf), int(4*sf), 3)

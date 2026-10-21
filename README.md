@@ -1,9 +1,15 @@
-# Halis Adisyon 2.2.0
+# Halis Adisyon 2.2.1
 
 Halis Erzurum Cağ Kebabı için Windows 11'de çalışan, internetsiz adisyon programı.
 Garson masayı açar, ürünlere tıklar, adisyonu Koddata KPS80 (80 mm termal, ESC/POS)
 yazıcıdan basar; müşteri ödeyince ödeme şeklini (Nakit, Kredi Kartı, Havale) seçip
 masayı kapatır. Yönetici gün sonunu alır, istatistikleri ve Excel raporunu görür.
+
+## 2.2.1'de gelenler
+
+- **Kapatılan günü yeniden açma:** Gün Sonu'nda kapatılmış günde "Günü yeniden aç" (`reopenDay`: sebep + yönetici şifresi). `business_days` satırı silinir, gönderilmemiş eski raporlar sıradan kalkar. Bugün açılırsa yeni adisyonlar yine bugüne yazılır; geçmiş gün açılırsa adisyonları düzeltilip gün yeniden kapatılır.
+- **Yanlış güne yazılmış (kaymış) adisyonları düzeltme:** gün bitmeden kapatılınca sonraki adisyonlar ertesi güne yazılır. Program açılış saatine göre iş günü ile yazıldığı günü karşılaştırır (son 60 gün) ve Gün Sonu'nda gruplar halinde gösterir. "Düzelt" (`fixShifted`: seçilen gruplar + sebep + şifre) adisyonları açıldıkları güne taşır; önce ayrı yedek alınır. Etkilenen geçmiş ve kapalı günlerin özeti yeniden hesaplanır, kapalı kalır (`corrected`), WhatsApp/Sheets raporları yeniden gönderilir; bugün ve sonrası kapalıysa yeniden açılır. Masada açık adisyon geçmiş güne taşınmaz. Numara, saat ve tutar değişmez; her adisyona `is_gunu_degisti` kaydı düşer. Bilerek ertesi güne yazılanlar için "Böyle kalsın" (`ignoreShift`, ayar `kayma_yoksay`).
+- **Önlem:** bugünün günü kapatılırken saat ve "bundan sonraki adisyonlar yarına yazılır" uyarısı; yeni adisyonlar bugünden sonraki bir güne yazılıyorsa Masalar ekranında sarı uyarı. Kapalı günün adisyon ayrıntısında günü yeniden açma ipucu. Düzeltilmiş günün gün sonu fişinde "Düzeltildi" yazar.
 
 ## 2.2.0'da gelenler
 
@@ -132,7 +138,7 @@ Yalnızca exe için (Windows'ta da çalışır; simge ve manifest hazır `.syso`
 
 ```sh
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
-  -ldflags "-H windowsgui -s -w -X main.version=2.2.0" -o HalisAdisyon.exe ./cmd/halisadisyon
+  -ldflags "-H windowsgui -s -w -X main.version=2.2.1" -o HalisAdisyon.exe ./cmd/halisadisyon
 ```
 
 `go.mod` içindeki `replace` satırları golang.org/x paketlerini GitHub aynalarından alır. Bunlar yalnızca golang.org'a erişimin kısıtlı olduğu ortamlar için gerekli; normal ortamda silinebilir.

@@ -109,12 +109,24 @@ func (s *Service) Reopen(no int64, table int, reason, pin string) (*State, int, 
 		if a.PrintCount > 0 {
 			status = StatusPrinted
 		}
-		if _, err := tx.Exec(`UPDATE adisyons SET status=?, closed_at=NULL, payment_method=NULL, table_no=? WHERE no=? AND status='paid'`,
+		if err := checkCreditRemoval(tx, a, 0); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE adisyons SET status=?, closed_at=NULL, table_no=? WHERE no=? AND status='paid'`,
 			status, table, no); err != nil {
 			return err
 		}
-		audit(tx, s.now(), "yeniden_acildi", no, map[string]any{"sebep": reason, "eski_odeme": a.PaymentMethod, "tutar": a.Total,
-			"masa": table, "eski_masa": a.Table})
+		if err := clearPayments(tx, no); err != nil {
+			return err
+		}
+		d := map[string]any{"sebep": reason, "eski_odeme": a.PaymentMethod, "tutar": a.Total, "masa": table, "eski_masa": a.Table}
+		if len(a.Payments) > 1 {
+			d["eski_parcalar"] = PaymentText(a.Payments, "")
+		}
+		if a.CreditCustomer != "" {
+			d["musteri"] = a.CreditCustomer
+		}
+		audit(tx, s.now(), "yeniden_acildi", no, d)
 		return nil
 	})
 	if err != nil {

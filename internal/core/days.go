@@ -127,6 +127,48 @@ type DayRow struct {
 	// DiscountPercent ve Discount: adisyona uygulanan yüzde indirim ve tutarı.
 	DiscountPercent int   `json:"discountPercent,omitempty"`
 	Discount        int64 `json:"discount,omitempty"`
+	// Payments ödeme parçaları; Customer veresiye müşterisi.
+	Payments []PaymentPart `json:"payments,omitempty"`
+	Customer string        `json:"customer,omitempty"`
+}
+
+// CreditLine gün sonundaki bir veresiye adisyondur.
+type CreditLine struct {
+	No     int64  `json:"no"`
+	Name   string `json:"name"`
+	Amount int64  `json:"amount"` // veresiye kısmı
+	Total  int64  `json:"total"`  // adisyonun tamamı
+}
+
+// CreditCollection gün sonundaki bir veresiye tahsilatıdır.
+type CreditCollection struct {
+	ID         int64  `json:"id"`
+	CustomerID int64  `json:"customerId"`
+	Name       string `json:"name"`
+	Method     string `json:"method"`
+	Label      string `json:"label"`
+	Amount     int64  `json:"amount"`
+	At         string `json:"at"`
+	Note       string `json:"note,omitempty"`
+}
+
+func dayCollections(q querier, date string) ([]CreditCollection, error) {
+	rows, err := q.Query(`SELECT cp.id, c.id, c.name, cp.method, cp.amount, cp.at, cp.note FROM credit_payments cp
+		JOIN credit_customers c ON c.id=cp.customer_id WHERE cp.business_date=? AND cp.cancelled_at IS NULL ORDER BY cp.at, cp.id`, date)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []CreditCollection{}
+	for rows.Next() {
+		var c CreditCollection
+		if err := rows.Scan(&c.ID, &c.CustomerID, &c.Name, &c.Method, &c.Amount, &c.At, &c.Note); err != nil {
+			return nil, err
+		}
+		c.Label = PaymentLabel(c.Method)
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 // DayWarning gün sonu uyarısıdır. Level: "bad" (kırmızı), "warn" (sarı).
@@ -168,6 +210,17 @@ type DaySummary struct {
 	Warnings       []DayWarning  `json:"warnings"`
 	NoMissing      bool          `json:"noMissing"` // numara atlaması yok
 	Unclosed       []string      `json:"unclosed"`  // gün sonu alınmamış önceki günler
+	// Split parçalı ödenen adisyon sayısı.
+	Split int `json:"split"`
+	// CreditGiven bugün veresiyeye yazılanlar; Collections bugün alınan veresiye
+	// tahsilatları (ciroya girmez); Drawer kasaya giren para (satış + tahsilat;
+	// veresiye hariç), şekle göre.
+	CreditGiven      []CreditLine       `json:"creditGiven"`
+	CreditGivenTotal int64              `json:"creditGivenTotal"`
+	Collections      []CreditCollection `json:"collections"`
+	CollectedTotal   int64              `json:"collectedTotal"`
+	Drawer           []PayTotal         `json:"drawer"`
+	DrawerTotal      int64              `json:"drawerTotal"`
 	// Corrected: kapandıktan sonra kaymış adisyonlar taşınıp özet yeniden hesaplandı.
 	Corrected bool `json:"corrected,omitempty"`
 	// Shifted: açıldığı günden sonraki bir güne yazılmış adisyon grupları (gün erken kapatıldıysa).
@@ -205,7 +258,16 @@ func loadDayAdisyons(q querier, date string) ([]Adisyon, error) {
 		out = append(out, *a)
 	}
 	rows.Close()
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := attachPayments(q, out, `a.business_date=?`, date); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Payments = partsOf(&out[i])
+	}
+	return out, nil
 }
 
 // featuredProduct öne çıkan ürünü (istatistikte "satılan cağ") verir: ayarlarda
@@ -225,7 +287,8 @@ func (s *Service) featuredProduct(q querier) (int64, error) {
 // daySummary bir iş gününün özetini veritabanından hesaplar.
 func (s *Service) daySummary(q querier, date string) (*DaySummary, error) {
 	ds := &DaySummary{Date: date, ByPayment: []PayTotal{}, ByWaiter: []WaiterTotal{}, Products: []ProductQty{}, Rows: []DayRow{},
-		Warnings: []DayWarning{}, VATs: []VATGroup{}, Shifted: []ShiftGroup{}}
+		Warnings: []DayWarning{}, VATs: []VATGroup{}, Shifted: []ShiftGroup{},
+		CreditGiven: []CreditLine{}, Collections: []CreditCollection{}, Drawer: []PayTotal{}}
 	closed, closedAt, err := dayClosed(q, date)
 	if err != nil {
 		return nil, err
@@ -260,7 +323,8 @@ func (s *Service) daySummary(q querier, date string) (*DaySummary, error) {
 			ds.LastNo = a.No
 		}
 		row := DayRow{No: a.No, Table: a.Table, Waiter: a.WaiterName, OpenedAt: a.OpenedAt, ClosedAt: a.ClosedAt,
-			Status: a.Status, StatusText: statusText(a), Payment: a.PaymentMethod, PaymentLabel: PaymentLabel(a.PaymentMethod),
+			Status: a.Status, StatusText: statusText(a), Payment: a.PaymentMethod, PaymentLabel: PaymentText(a.Payments, a.PaymentMethod),
+			Payments: a.Payments, Customer: a.CreditCustomer,
 			Total: a.Total, PrintCount: a.PrintCount, Changed: a.Changed, MergedInto: a.MergedInto, CancelReason: a.CancelReason,
 			DiscountPercent: a.DiscountPercent, Discount: a.DiscountAmount}
 		ds.Rows = append(ds.Rows, row)
@@ -273,16 +337,29 @@ func (s *Service) daySummary(q querier, date string) (*DaySummary, error) {
 				ds.Discounts++
 				ds.DiscountTotal += a.DiscountAmount
 			}
-			p := pay[a.PaymentMethod]
-			if p == nil {
-				p = &PayTotal{Method: a.PaymentMethod, Label: PaymentLabel(a.PaymentMethod)}
-				if p.Label == "" {
-					p.Label = "Belirtilmemiş"
-				}
-				pay[a.PaymentMethod] = p
+			parts := a.Payments
+			if len(parts) == 0 { // 1.0.0'dan kalan, ödeme şekli olmayan kayıt
+				parts = []PaymentPart{{Method: "", Amount: a.Total}}
 			}
-			p.Count++
-			p.Total += a.Total
+			for _, pp := range parts {
+				p := pay[pp.Method]
+				if p == nil {
+					p = &PayTotal{Method: pp.Method, Label: PaymentLabel(pp.Method)}
+					if p.Label == "" {
+						p.Label = "Belirtilmemiş"
+					}
+					pay[pp.Method] = p
+				}
+				p.Count++
+				p.Total += pp.Amount
+				if pp.Method == PayCredit {
+					ds.CreditGiven = append(ds.CreditGiven, CreditLine{No: a.No, Name: a.CreditCustomer, Amount: pp.Amount, Total: a.Total})
+					ds.CreditGivenTotal += pp.Amount
+				}
+			}
+			if len(parts) > 1 {
+				ds.Split++
+			}
 			w := waiters[a.WaiterName]
 			if w == nil {
 				w = &WaiterTotal{Name: a.WaiterName}
@@ -318,12 +395,29 @@ func (s *Service) daySummary(q querier, date string) (*DaySummary, error) {
 	for _, m := range PaymentMethods {
 		if p := pay[m.ID]; p != nil {
 			ds.ByPayment = append(ds.ByPayment, *p)
-		} else {
+		} else if m.ID != PayCredit { // veresiye yalnız varsa gösterilir
 			ds.ByPayment = append(ds.ByPayment, PayTotal{Method: m.ID, Label: m.Label})
 		}
 	}
 	if p := pay[""]; p != nil {
 		ds.ByPayment = append(ds.ByPayment, *p)
+	}
+	// Veresiye tahsilatları ve kasaya giren para (satış + tahsilat).
+	if ds.Collections, err = dayCollections(q, date); err != nil {
+		return nil, err
+	}
+	coll := map[string]int64{}
+	for _, c := range ds.Collections {
+		ds.CollectedTotal += c.Amount
+		coll[c.Method] += c.Amount
+	}
+	for _, m := range CollectMethods {
+		d := PayTotal{Method: m.ID, Label: m.Label, Total: coll[m.ID]}
+		if p := pay[m.ID]; p != nil {
+			d.Total += p.Total
+		}
+		ds.Drawer = append(ds.Drawer, d)
+		ds.DrawerTotal += d.Total
 	}
 	for _, n := range waiterOrder {
 		ds.ByWaiter = append(ds.ByWaiter, *waiters[n])

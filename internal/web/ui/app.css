@@ -417,9 +417,9 @@ details.help ol { margin: 0; padding-left: 22px; display: flex; flex-direction: 
 .restart { position: fixed; inset: 0; z-index: 95; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-size: 24px; font-weight: 700; text-align: center; padding: 16px; }
 
 /* ---- Grafikler (renkler: veri görselleştirme paleti, açık/koyu ayrı) ---- */
-.viz { --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --wash: rgba(42,120,214,.10); --grid: #EAE5E0; --axis: #CFC7C0; --tick: #6F655E; }
+.viz { --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #c2399a; --wash: rgba(42,120,214,.10); --grid: #EAE5E0; --axis: #CFC7C0; --tick: #6F655E; }
 @media (prefers-color-scheme: dark) {
-  .viz { --s1: #3987e5; --s2: #d95926; --s3: #199e70; --wash: rgba(57,135,229,.16); --grid: #332C28; --axis: #4D433D; --tick: #A89D94; }
+  .viz { --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c2399a; --wash: rgba(57,135,229,.16); --grid: #332C28; --axis: #4D433D; --tick: #A89D94; }
 }
 .chart { position: relative; width: 100%; }
 .chart svg { display: block; overflow: visible; }
@@ -460,3 +460,32 @@ ul.plain { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-dire
 ul.plain li { display: flex; gap: 8px; align-items: flex-start; }
 ul.plain li svg { flex: none; margin-top: 3px; }
 .err-box p strong { display: inline; font-size: inherit; margin: 0; }
+
+/* Veresiye ve parçalı ödeme (2.3.0) */
+.pay-methods.pay-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.pay-btn.pay-split { grid-column: 1 / -1; min-height: 76px; flex-direction: row; gap: 12px; }
+.pay-btn.pay-split .muted { font-size: 16px; font-weight: 600; }
+.pay-btn .muted.small { font-size: 15px; font-weight: 600; }
+@media (max-width: 760px) { .pay-methods.pay-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .pay-methods.pay-4 { grid-template-columns: 1fr; } }
+.split-rows { display: flex; flex-direction: column; gap: 10px; }
+.split-row { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(120px, 220px) auto; gap: 10px; align-items: center; }
+.split-row label { display: inline-flex; align-items: center; gap: 10px; font-size: 21px; font-weight: 700; }
+.input.money { text-align: right; font-size: 22px; font-variant-numeric: tabular-nums; }
+.split-sum { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; padding: 12px 16px; border-radius: 12px; background: var(--sunken); font-size: 20px; font-variant-numeric: tabular-nums; }
+.split-sum.good { background: var(--good-tint); color: var(--good); }
+.split-sum.bad { background: var(--bad-tint); color: var(--bad); }
+.split-sum span { display: inline-flex; align-items: center; gap: 6px; }
+.cr-sugg { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.cr-sugg:empty { display: none; }
+.cr-match { display: inline-flex; align-items: center; gap: 6px; color: var(--good); font-weight: 700; font-size: 17px; }
+.cr-match.new { color: var(--info); }
+.debt { color: var(--bad); }
+.search-box { display: inline-flex; align-items: center; gap: 8px; flex: 0 1 320px; min-width: 0; }
+.search-box .input { min-width: 0; }
+.linkish.inline { min-height: 0; padding: 0 2px; font-size: inherit; }
+@media (max-width: 560px) { .split-row { grid-template-columns: 1fr auto; } .split-row label { grid-column: 1 / -1; } }
+
+/* Üst çubuk: altı menü düğmesi dar ekranda tek satıra sığsın */
+@media (max-width: 1440px) { .nav { gap: 6px; } .nav-btn { padding: 0 12px; gap: 6px; } .nav-btn.quiet span { display: none; } }
+@media (max-width: 1180px) { .nav-btn { padding: 0 10px; font-size: 18px; } }

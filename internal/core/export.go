@@ -32,7 +32,7 @@ func changeCell(c StatCard) xlsx.Cell {
 }
 
 // excelReport istatistiklerden Excel sayfalarını kurar.
-func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xlsx.Sheet {
+func excelReport(biz string, st *Stats, list []Adisyon, credits []CreditCustomer, created time.Time) []xlsx.Sheet {
 	feat := "Satılan ürün"
 	if st.FeaturedName != "" {
 		feat = "Satılan " + st.FeaturedName + " (" + st.FeaturedUnit + ")"
@@ -60,6 +60,10 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 	add(xlsx.Text("Yapılan indirim"), xlsx.Money(st.DiscountTotal))
 	add(xlsx.Text("İkram (ürün adedi)"), xlsx.Int(int64(st.Comps)))
 	add(xlsx.Text("İkram değeri (liste fiyatıyla)"), xlsx.Money(st.CompValue))
+	if st.CreditGiven > 0 || st.Collected > 0 {
+		add(xlsx.Text("Veresiyeye yazılan (ciroya dahil)"), xlsx.Money(st.CreditGiven))
+		add(xlsx.Text("Veresiye tahsilatı (ciroya dahil değil)"), xlsx.Money(st.Collected))
+	}
 	add()
 	add(xlsx.Header("Ödeme şekli"), xlsx.Header("Adisyon"), xlsx.Header("Tutar"), xlsx.Header("Pay"))
 	for _, p := range st.ByPayment {
@@ -79,16 +83,23 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 	add(xlsx.Text("Not: Ciro yalnız ödenen adisyonlardan hesaplanır; iş günü sabah 05:00'te başlar."))
 
 	// ---- Günlük (gün × ürün adetleri dahil) ----
-	unknown := false
+	unknown, credit := false, false
 	for _, d := range st.Days {
 		if d.Unknown > 0 {
 			unknown = true
+		}
+		if d.Credit > 0 || d.Collected > 0 {
+			credit = true
 		}
 	}
 	gun := xlsx.Sheet{Name: "Günlük", HeaderRow: 1}
 	head := []xlsx.Cell{xlsx.Header("Tarih"), xlsx.Header("Gün"), xlsx.Header("Ciro"), xlsx.Header("Adisyon"), xlsx.Header("Ortalama"),
 		xlsx.Header("Nakit"), xlsx.Header("Kredi Kartı"), xlsx.Header("Havale")}
 	gun.Widths = []float64{12, 11, 15, 9, 13, 14, 14, 14}
+	if credit {
+		head = append(head, xlsx.Header("Veresiye"), xlsx.Header("Veresiye tahsilatı"))
+		gun.Widths = append(gun.Widths, 14, 18)
+	}
 	if unknown {
 		head = append(head, xlsx.Header("Belirtilmemiş"))
 		gun.Widths = append(gun.Widths, 14)
@@ -114,6 +125,9 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 		t := dateOf(d.Date)
 		row := []xlsx.Cell{xlsx.Date(t), xlsx.Text(gunlerTR[t.Weekday()]), xlsx.Money(d.Revenue), xlsx.Int(int64(d.Count)),
 			xlsx.Money(avgOf(d.Revenue, int64(d.Count))), xlsx.Money(d.Cash), xlsx.Money(d.Card), xlsx.Money(d.Transfer)}
+		if credit {
+			row = append(row, xlsx.Money(d.Credit), xlsx.Money(d.Collected))
+		}
 		if unknown {
 			row = append(row, xlsx.Money(d.Unknown))
 		}
@@ -137,6 +151,8 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 		tot.Cash += d.Cash
 		tot.Card += d.Card
 		tot.Transfer += d.Transfer
+		tot.Credit += d.Credit
+		tot.Collected += d.Collected
 		tot.Unknown += d.Unknown
 		tot.Cancelled += d.Cancelled
 		tot.Discount += d.Discount
@@ -146,6 +162,9 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 	gun.FilterLast = len(gun.Rows)
 	row := []xlsx.Cell{xlsx.Bold("Toplam"), xlsx.Empty(), xlsx.MoneyBold(tot.Revenue), {V: int64(tot.Count), Style: xlsx.StyleIntBold},
 		xlsx.MoneyBold(avgOf(tot.Revenue, int64(tot.Count))), xlsx.MoneyBold(tot.Cash), xlsx.MoneyBold(tot.Card), xlsx.MoneyBold(tot.Transfer)}
+	if credit {
+		row = append(row, xlsx.MoneyBold(tot.Credit), xlsx.MoneyBold(tot.Collected))
+	}
 	if unknown {
 		row = append(row, xlsx.MoneyBold(tot.Unknown))
 	}
@@ -177,18 +196,35 @@ func excelReport(biz string, st *Stats, list []Adisyon, created time.Time) []xls
 	urun.Rows = append(urun.Rows, []xlsx.Cell{xlsx.Bold("Toplam"), xlsx.Empty(), {V: pq, Style: xlsx.StyleIntBold}, xlsx.MoneyBold(pt)})
 
 	// ---- Adisyonlar ----
-	ad := xlsx.Sheet{Name: "Adisyonlar", HeaderRow: 1, Widths: []float64{8, 12, 7, 14, 17, 17, 16, 14, 14, 10, 13, 12, 8, 34}}
+	ad := xlsx.Sheet{Name: "Adisyonlar", HeaderRow: 1, Widths: []float64{8, 12, 7, 14, 17, 17, 16, 30, 14, 10, 13, 12, 8, 34, 20}}
 	ad.Rows = append(ad.Rows, []xlsx.Cell{xlsx.Header("No"), xlsx.Header("İş günü"), xlsx.Header("Masa"), xlsx.Header("Garson"),
 		xlsx.Header("Açılış"), xlsx.Header("Kapanış"), xlsx.Header("Durum"), xlsx.Header("Ödeme şekli"), xlsx.Header("Tutar"),
-		xlsx.Header("İndirim %"), xlsx.Header("İndirim"), xlsx.Header("KDV"), xlsx.Header("Baskı"), xlsx.Header("Not")})
+		xlsx.Header("İndirim %"), xlsx.Header("İndirim"), xlsx.Header("KDV"), xlsx.Header("Baskı"), xlsx.Header("Not"), xlsx.Header("Veresiye müşterisi")})
 	for i := range list {
 		a := &list[i]
 		note := a.CancelReason
 		ad.Rows = append(ad.Rows, []xlsx.Cell{xlsx.Int(a.No), xlsx.Date(dateOf(a.BusinessDate)), xlsx.Int(int64(a.Table)), xlsx.Text(a.WaiterName),
-			xlsx.DateTime(localTime(a.OpenedAt)), xlsx.DateTime(localTime(a.ClosedAt)), xlsx.Text(statusText(a)), xlsx.Text(PaymentLabel(a.PaymentMethod)),
-			xlsx.Money(a.Total), xlsx.Int(int64(a.DiscountPercent)), xlsx.Money(a.DiscountAmount), xlsx.Money(a.VATTotal), xlsx.Int(int64(a.PrintCount)), xlsx.Text(note)})
+			xlsx.DateTime(localTime(a.OpenedAt)), xlsx.DateTime(localTime(a.ClosedAt)), xlsx.Text(statusText(a)), xlsx.Text(PaymentText(a.Payments, a.PaymentMethod)),
+			xlsx.Money(a.Total), xlsx.Int(int64(a.DiscountPercent)), xlsx.Money(a.DiscountAmount), xlsx.Money(a.VATTotal), xlsx.Int(int64(a.PrintCount)), xlsx.Text(note),
+			xlsx.Text(a.CreditCustomer)})
 	}
-	return []xlsx.Sheet{ozet, gun, urun, ad}
+	sheets := []xlsx.Sheet{ozet, gun, urun, ad}
+	if len(credits) > 0 {
+		// ---- Veresiye (rapor anındaki borçlar) ----
+		vs := xlsx.Sheet{Name: "Veresiye", HeaderRow: 1, Widths: []float64{26, 16, 16, 16, 16, 10, 17, 30}}
+		vs.Rows = append(vs.Rows, []xlsx.Cell{xlsx.Header("Müşteri"), xlsx.Header("Telefon"), xlsx.Header("Toplam veresiye"),
+			xlsx.Header("Tahsil edilen"), xlsx.Header("Kalan borç"), xlsx.Header("Adisyon"), xlsx.Header("Son hareket"), xlsx.Header("Not")})
+		var g, c, b int64
+		for _, x := range credits {
+			vs.Rows = append(vs.Rows, []xlsx.Cell{xlsx.Text(x.Name), xlsx.Text(x.Phone), xlsx.Money(x.Given), xlsx.Money(x.Collected),
+				xlsx.Money(x.Balance), xlsx.Int(int64(x.Count)), xlsx.DateTime(localTime(x.LastAt)), xlsx.Text(x.Note)})
+			g, c, b = g+x.Given, c+x.Collected, b+x.Balance
+		}
+		vs.FilterLast = len(vs.Rows)
+		vs.Rows = append(vs.Rows, []xlsx.Cell{xlsx.Bold("Toplam"), xlsx.Empty(), xlsx.MoneyBold(g), xlsx.MoneyBold(c), xlsx.MoneyBold(b)})
+		sheets = append(sheets, vs)
+	}
+	return sheets
 }
 
 // ExportExcel seçilen dönemin raporunu Excel dosyası olarak kaydeder ve dosyayı
@@ -204,13 +240,18 @@ func (s *Service) ExportExcel(q StatsQuery) (string, error) {
 	if err == nil {
 		list, err = s.periodAdisyons(st.From, st.To)
 	}
+	var credits []CreditCustomer
+	if err == nil {
+		credits, err = loadCustomers(s.db)
+		sortCustomers(credits)
+	}
 	biz := s.set.Business.Name
 	s.mu.Unlock()
 	if err != nil {
 		return "", err
 	}
 	var buf bytes.Buffer
-	if err := xlsx.Write(&buf, excelReport(biz, st, list, s.now())); err != nil {
+	if err := xlsx.Write(&buf, excelReport(biz, st, list, credits, s.now())); err != nil {
 		return "", err
 	}
 	// Önce Belgeler\Halis Adisyon Raporları; oraya yazılamazsa (Belgeler başka yere

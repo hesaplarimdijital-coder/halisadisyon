@@ -31,6 +31,17 @@ func (s *Service) dayReport(ds *DaySummary) receipt.DayReport {
 			r.Payments = append(r.Payments, receipt.NameAmount{Name: p.Label, Count: p.Count, Total: p.Total})
 		}
 	}
+	r.Split = ds.Split
+	for _, v := range ds.CreditGiven {
+		r.CreditGiven = append(r.CreditGiven, receipt.NameAmount{Name: v.Name, Count: int(v.No), Total: v.Amount})
+	}
+	for _, v := range ds.Collections {
+		r.Collections = append(r.Collections, receipt.NameAmount{Name: v.Name + " · " + v.Label, Total: v.Amount})
+	}
+	for _, p := range ds.Drawer {
+		r.Drawer = append(r.Drawer, receipt.NameAmount{Name: p.Label, Total: p.Total})
+	}
+	r.DrawerTotal = ds.DrawerTotal
 	for _, w := range ds.ByWaiter {
 		r.Waiters = append(r.Waiters, receipt.NameAmount{Name: w.Name, Count: w.Count, Total: w.Total})
 	}

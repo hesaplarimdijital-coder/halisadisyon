@@ -1,9 +1,18 @@
-# Halis Adisyon 2.2.1
+# Halis Adisyon 2.3.0
 
 Halis Erzurum Cağ Kebabı için Windows 11'de çalışan, internetsiz adisyon programı.
 Garson masayı açar, ürünlere tıklar, adisyonu Koddata KPS80 (80 mm termal, ESC/POS)
 yazıcıdan basar; müşteri ödeyince ödeme şeklini (Nakit, Kredi Kartı, Havale) seçip
 masayı kapatır. Yönetici gün sonunu alır, istatistikleri ve Excel raporunu görür.
+
+## 2.3.0'da gelenler
+
+- **Parçalı ödeme:** ödeme penceresinde "Parçalı ödeme" (klavyede 5). Her ödeme şekline tutar yazılır, "Kalanı" düğmesi kalanı o satıra yazar; toplam hesaba eşit olmadan kapanmaz. Parçalar `adisyon_payments` tablosunda (şema 5); tek şekilde tek parça, `adisyons.payment_method` parçalıda `parcali`. Eski ödenmiş adisyonlar geçişte tek parça olarak taşınır. Gün sonu, istatistik, Excel, Sheets ve WhatsApp her parçayı kendi şekline sayar; adisyonda "Nakit 500,00 ₺ + Kredi Kartı 230,00 ₺".
+- **Veresiye:** dördüncü ödeme şekli (klavyede 4); müşteri adı sorulur (kayıtlı müşteriler önerilir, Türkçe büyük/küçük harf duyarsız eşleşir; yeni müşteride telefon isteğe bağlı). `credit_customers`, `credit_payments`, `adisyons.credit_customer_id`. Veresiye adisyonun gününde ciroya yazılır, kasaya girmez. Parçalı ödemenin bir parçası da veresiye olabilir.
+- **Veresiye ekranı** (menüde, yönetici şifresi istemez): borçlu müşteriler, toplam alacak, arama, müşteri hesap dökümü (veresiye adisyonlar ve tahsilatlar, her hareketten sonraki borç). "Tahsil et": tamamı ya da bir kısmı, Nakit/Kart/Havale; tahsilat açık iş gününün kasasına girer, ciroya ikinci kez yazılmaz. Tahsilat iptali yönetici şifresi ve sebep ister; günü kapatılmış tahsilat iptal edilmez. Müşteri adı/telefon/not düzeltilebilir.
+- **Gün sonu:** "Veresiye" (o gün yazılanlar), "Veresiye tahsilatı" ve "Kasaya giren" (Nakit/Kart/Havale = satış + tahsilat) bölümleri; gün sonu fişinde VERESİYE ve KASAYA GİREN bölümleri. Excel'de Veresiye sütunları ve "Veresiye" sayfası (rapor anındaki borçlar).
+- **Ödeme düzeltme** parçalı ve veresiye ödemeyi de destekler. Veresiyeden tahsilat alınmışsa ve veresiyeyi kaldırmak borcu eksiye düşürecekse (iptal, yeniden açma, ödeme değişikliği) önce tahsilat iptal edilmelidir.
+- Üst menü altı düğmeyle dar ekranlarda tek satıra sığar; "Kilitle" düğmesi yalnız simgeyle görünür.
 
 ## 2.2.1'de gelenler
 
@@ -138,7 +147,7 @@ Yalnızca exe için (Windows'ta da çalışır; simge ve manifest hazır `.syso`
 
 ```sh
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
-  -ldflags "-H windowsgui -s -w -X main.version=2.2.1" -o HalisAdisyon.exe ./cmd/halisadisyon
+  -ldflags "-H windowsgui -s -w -X main.version=2.3.0" -o HalisAdisyon.exe ./cmd/halisadisyon
 ```
 
 `go.mod` içindeki `replace` satırları golang.org/x paketlerini GitHub aynalarından alır. Bunlar yalnızca golang.org'a erişimin kısıtlı olduğu ortamlar için gerekli; normal ortamda silinebilir.

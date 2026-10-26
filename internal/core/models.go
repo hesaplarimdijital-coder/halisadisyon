@@ -86,9 +86,14 @@ type Adisyon struct {
 	MergedInto int64 `json:"mergedInto,omitempty"`
 	// DiscountPercent adisyonun tamamına uygulanan yüzde indirimdir (0: yok);
 	// DiscountAmount bunun kuruş karşılığıdır. Total ve VATTotal indirim düşülmüş hallerdir.
-	DiscountPercent int    `json:"discountPercent"`
-	DiscountAmount  int64  `json:"discountAmount"`
-	Lines           []Line `json:"lines"`
+	DiscountPercent int   `json:"discountPercent"`
+	DiscountAmount  int64 `json:"discountAmount"`
+	// Payments ödenen adisyonun ödeme parçalarıdır (tek şekilde tek parça).
+	Payments []PaymentPart `json:"payments,omitempty"`
+	// CreditCustomerID ve CreditCustomer: veresiye parçası varsa borçlu müşteri.
+	CreditCustomerID int64  `json:"creditCustomerId,omitempty"`
+	CreditCustomer   string `json:"creditCustomer,omitempty"`
+	Lines            []Line `json:"lines"`
 }
 
 func (a *Adisyon) active() bool { return a.Status == StatusOpen || a.Status == StatusPrinted }
@@ -223,14 +228,18 @@ type State struct {
 	Seq  uint64 `json:"seq"`
 	Boot int64  `json:"boot"`
 
-	PaymentMethods    []PaymentMethod `json:"paymentMethods"`
-	UnclosedDays      []string        `json:"unclosedDays"` // gün sonu alınmamış önceki günler
-	Notice            string          `json:"notice,omitempty"`
-	FeaturedProductID int64           `json:"featuredProductId"`
-	WhatsApp          WhatsAppView    `json:"whatsapp"`
-	Sheets            SheetsView      `json:"sheets"`
-	DiscountNoPIN     bool            `json:"discountNoPin"`
-	DiscountPresets   []int           `json:"discountPresets"`
+	PaymentMethods []PaymentMethod `json:"paymentMethods"`
+	CollectMethods []PaymentMethod `json:"collectMethods"`
+	// CreditCustomers veresiye müşterileri (ödeme penceresinde ad önerisi), CreditBalance toplam alacak.
+	CreditCustomers   []CreditBrief `json:"creditCustomers"`
+	CreditBalance     int64         `json:"creditBalance"`
+	UnclosedDays      []string      `json:"unclosedDays"` // gün sonu alınmamış önceki günler
+	Notice            string        `json:"notice,omitempty"`
+	FeaturedProductID int64         `json:"featuredProductId"`
+	WhatsApp          WhatsAppView  `json:"whatsapp"`
+	Sheets            SheetsView    `json:"sheets"`
+	DiscountNoPIN     bool          `json:"discountNoPin"`
+	DiscountPresets   []int         `json:"discountPresets"`
 }
 
 // WhatsAppView ayarlar ekranındaki WhatsApp bilgisidir (erişim anahtarı gönderilmez).
@@ -270,6 +279,9 @@ type PayOutcome struct {
 	Total       int64  `json:"total"` // kapanan tutar
 	Method      string `json:"method"`
 	MethodLabel string `json:"methodLabel"`
+	// Parts ödeme parçaları; Customer veresiye müşterisinin adı.
+	Parts    []PaymentPart `json:"parts"`
+	Customer string        `json:"customer,omitempty"`
 }
 
 // UserError garsona ya da yöneticiye gösterilecek açıklamalı hatadır.

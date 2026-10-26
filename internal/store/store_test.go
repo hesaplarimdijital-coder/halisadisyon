@@ -77,3 +77,46 @@ func TestLineIDsAreNotReused(t *testing.T) {
 		t.Fatal("silinen kalemin numarası yeniden verildi")
 	}
 }
+
+// Şema 4'ten 5'e geçişte ödenmiş adisyonların ödeme şekli tek parça olarak
+// adisyon_payments'a taşınır; ödeme şekli olmayan eski kayıt parçasız kalır.
+func TestMigrateV5Payments(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "adisyon.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	for v := 1; v <= 4; v++ {
+		if _, err := st.DB.Exec(migrations[v]); err != nil {
+			t.Fatal(v, err)
+		}
+	}
+	if _, err := st.DB.Exec(`PRAGMA user_version=4`); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO adisyons(no,business_date,table_no,status,opened_at,total,payment_method) VALUES(1,'2026-10-11',1,'paid','x',34000,'kart')`,
+		`INSERT INTO adisyons(no,business_date,table_no,status,opened_at,total,payment_method) VALUES(2,'2026-10-11',2,'paid','x',5000,NULL)`,
+		`INSERT INTO adisyons(no,business_date,table_no,status,opened_at,total) VALUES(3,'2026-10-11',3,'open','x',5000)`,
+	} {
+		if _, err := st.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var from, to int
+	if err := st.Migrate(func(f, t int) error { from, to = f, t; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if from != 4 || to != SchemaVersion {
+		t.Fatalf("güncelleme öncesi yedek çağrısı: %d → %d", from, to)
+	}
+	var n int
+	var m string
+	var amt int64
+	if err := st.DB.QueryRow(`SELECT COUNT(*), MAX(method), MAX(amount) FROM adisyon_payments`).Scan(&n, &m, &amt); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || m != "kart" || amt != 34000 {
+		t.Fatalf("ödeme parçaları: %d %s %d", n, m, amt)
+	}
+}

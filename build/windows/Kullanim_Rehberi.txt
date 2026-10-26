@@ -1,4 +1,4 @@
-HALİS ADİSYON 2.2.1 · KISA KULLANIM REHBERİ
+HALİS ADİSYON 2.3.0 · KISA KULLANIM REHBERİ
 ============================================
 
 1. İLK AÇILIŞ
@@ -15,7 +15,7 @@ ayarlar aynen kalır; güncellemeden önce verilerin ayrıca yedeği alınır.
 2.1.0'da gelenler: yüzde indirim, ödenmiş adisyonu düzeltme (yeniden açma) ve
 iptal, günlük yedeklerin 90 gün saklanması. 2.2.0: ikram kalemi.
 2.2.1: yanlışlıkla kapatılan günü yeniden açma ve yanlış güne yazılan
-adisyonları düzeltme (bölüm 4).
+adisyonları düzeltme (bölüm 4). 2.3.0: veresiye ve parçalı ödeme (bölüm 3b).
 
 
 2. YAZICI (KODDATA KPS80)
@@ -51,7 +51,8 @@ Ayarlar > Fiş bilgileri bölümünde sağda "Canlı önizleme" vardır: yazdık
   - "Adisyonu Bas": adisyon yazıcıdan çıkar ve müşteriye verilir. İkinci
     baskıda fişte "KOPYA" yazar.
   - "Hesap Ödendi": müşteri ödeyince basın. Açılan pencerede müşterinin nasıl
-    ödediğini seçin: Nakit, Kredi Kartı ya da Havale (klavyeden 1, 2, 3).
+    ödediğini seçin: Nakit, Kredi Kartı, Havale ya da Veresiye (klavyeden
+    1, 2, 3, 4). Birden çok şekille ödendiyse "Parçalı ödeme" (5); bkz. 3b.
     Seçince hesap kapanır ve masa boşalır. Ödeme şekli fişe basılmaz (fiş
     ödemeden önce verilir); programda adisyona kaydedilir ve gün sonunda,
     istatistikte, Excel raporunda, WhatsApp mesajında ve Google Sheets'te
@@ -59,6 +60,7 @@ Ayarlar > Fiş bilgileri bölümünde sağda "Canlı önizleme" vardır: yazdık
     uyarır; "Adisyonu Bas"a basınca fiş çıkar ve pencere yeniden açılır.
   - Yanlış ödeme şekli seçildiyse yönetici Gün Sonu ekranında adisyona
     tıklayıp "Değiştir" ile düzeltir (şifre ister; gün kapatılmadan önce).
+    Parçalı ve veresiye ödeme de buradan düzeltilir.
   - "İndirim": anlaşmalı müşteri ya da ikram için adisyonun tamamına yüzde
     indirim uygular (%5, %10, %15, %20, %25, %50 ya da elle; %100 ikramdır).
     Yönetici şifresi ister (Ayarlar > Yönetici şifresi bölümünden kapatılabilir).
@@ -92,6 +94,36 @@ Ayarlar > Fiş bilgileri bölümünde sağda "Canlı önizleme" vardır: yazdık
     bile program yeniden açılınca masalar aynen gelir.
 
 
+3b. PARÇALI ÖDEME VE VERESİYE
+-----------------------------
+PARÇALI ÖDEME: Müşteri hesabın bir kısmını nakit, bir kısmını kartla öderse
+"Hesap Ödendi" > "Parçalı ödeme". Her ödeme şeklinin yanına alınan tutarı
+yazın (ör. Nakit 500). Son satırda "Kalanı"na basınca kalan tutar o satıra
+yazılır. Altta "Kalan" sıfır olup "Tutar tamam" yazınca "Hesabı kapat".
+Gün sonunda her parça kendi ödeme şekline sayılır.
+
+VERESİYE: "Hesap Ödendi" > "Veresiye" (4). Müşterinin adını yazın; daha önce
+veresiye almış biri yazılırken altta önerilir (büyük/küçük harf fark etmez).
+Yeni müşteride telefon isteğe bağlıdır. "Veresiyeye yaz" ile masa kapanır.
+Hesabın bir kısmı peşin alınıp kalanı veresiye yazılacaksa "Parçalı ödeme"de
+Veresiye satırına tutar yazın; ad orada sorulur.
+Veresiye o günün cirosuna yazılır ama kasaya girmez.
+
+VERESİYE EKRANI (üst menüde "Veresiye"):
+  - Borcu olan müşteriler, toplam alacak ve arama kutusu.
+  - Müşteriye tıklayınca hesap dökümü: hangi gün hangi adisyonla ne kadar
+    veresiye yazıldığı, ne zaman ne kadar ödendiği ve kalan borç.
+  - "Tahsil et": müşteri ödeyince tutarı yazın (tamamı önerilir, bir kısmı da
+    alınabilir) ve nasıl ödediğini seçin: Nakit, Kredi Kartı ya da Havale.
+    Tahsilat o günün kasasına "veresiye tahsilatı" olarak girer; ciroya ikinci
+    kez yazılmaz.
+  - Yanlış girilen tahsilat aynı gün "İptal" ile geri alınır (yönetici şifresi
+    ve sebep). Günü kapatılmış tahsilat iptal edilmez.
+  - "Bilgileri düzenle": müşterinin adı, telefonu ve notu.
+Veresiyesinden tahsilat alınmış bir adisyon iptal edilecek ya da ödeme şekli
+değiştirilecekse ve borç eksiye düşecekse, önce tahsilat iptal edilmelidir.
+
+
 4. GÜN SONU (YÖNETİCİ)
 ----------------------
 İş günü sabah 05:00'te başlar: gece yarısından sonra açılan masalar o günün
@@ -103,7 +135,10 @@ Gün Sonu ekranında:
   - Ciro (KDV dahil), KDV, ödenen adisyon sayısı, ortalama adisyon, satılan
     cağ, iptaller, yapılan indirimler (ciro indirim düşülmüş tutardır),
     ikramlar (adet ve liste fiyatıyla değeri; ciroya girmez).
-  - Ödeme şekilleri: Nakit, Kredi Kartı ve Havale toplamları (kasa sayımı için).
+  - Ödeme şekilleri: Nakit, Kredi Kartı, Havale (ve varsa Veresiye) toplamları.
+  - Veresiye ya da tahsilat olan günde üç bölüm daha: "Veresiye" (o gün kime
+    ne kadar yazıldığı), "Veresiye tahsilatı" (o gün alınan borç ödemeleri) ve
+    "Kasaya giren" (kasa sayımı için: Nakit, Kart, Havale = satış + tahsilat).
   - Garsonlara göre adisyon sayısı ve ciro; satılan ürün adetleri.
   - Günün tüm adisyonları (saat, masa, garson, durum, ödeme şekli, tutar).
     Satıra tıklayınca adisyonun kalemleri ve işlem geçmişi açılır; ödenmiş

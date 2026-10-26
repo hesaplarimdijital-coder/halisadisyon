@@ -43,6 +43,7 @@ var auditKindOf = map[string]string{
 	"urun_eklendi": "fiyat", "urun_degisti": "fiyat", "toplu_fiyat": "fiyat", "toplu_zam": "fiyat",
 	"basildi": "baski", "basilamadi": "baski", "test_fisi": "baski", "gun_sonu_fisi": "baski",
 	"odendi": "odeme", "odeme_degisti": "odeme",
+	"veresiye_tahsil": "odeme", "veresiye_tahsil_iptal": "odeme", "veresiye_musteri": "odeme", "veresiye_musteri_degisti": "odeme",
 	"adisyon_acildi": "masa", "masa_tasindi": "masa", "masa_birlesti": "masa", "garson_degisti": "masa",
 	"kalem": "kalem", "geri_al": "kalem",
 	"gun_kapatildi": "gun", "gun_yeniden_acildi": "gun", "gun_duzeltildi": "gun", "is_gunu_degisti": "gun", "kayma_yoksayildi": "gun", "gun_sonu_gecisi": "gun", "yedek_geri_yuklendi": "gun", "geri_yukleme_hazirlandi": "gun", "gonderim": "gun", "rapor_alindi": "gun",
@@ -58,6 +59,8 @@ var auditLabels = map[string]string{
 	"urun_eklendi": "Ürün eklendi", "urun_degisti": "Ürün değişti", "toplu_fiyat": "Toplu zam", "toplu_zam": "Toplu zam uygulandı",
 	"basildi": "Baskı", "basilamadi": "Baskı yapılamadı", "test_fisi": "Test fişi", "gun_sonu_fisi": "Gün sonu fişi",
 	"odendi": "Hesap ödendi", "odeme_degisti": "Ödeme şekli değişti",
+	"veresiye_tahsil": "Veresiye tahsilatı", "veresiye_tahsil_iptal": "Tahsilat iptal edildi",
+	"veresiye_musteri": "Veresiye müşterisi açıldı", "veresiye_musteri_degisti": "Veresiye müşterisi değişti",
 	"adisyon_acildi": "Masa açıldı", "masa_tasindi": "Masa taşındı", "masa_birlesti": "Masalar birleşti", "garson_degisti": "Garson değişti",
 	"kalem": "Kalem", "geri_al": "Geri alındı",
 	"gun_kapatildi": "Gün kapatıldı", "gun_yeniden_acildi": "Gün yeniden açıldı", "gun_duzeltildi": "Kaymış adisyonlar düzeltildi",
@@ -136,15 +139,25 @@ func describeAudit(action string, no int64, d map[string]any) string {
 		t := fmt.Sprintf("Sebep: %s · tutar %s · Masa %s", dStr(d, "sebep"), dMoney(d, "tutar"), dStr(d, "masa"))
 		if dStr(d, "eski_durum") == StatusPaid {
 			t += " · ödenmişti"
-			if m := dStr(d, "eski_odeme"); m != "" {
+			if p := dStr(d, "eski_parcalar"); p != "" {
+				t += " (" + p + ")"
+			} else if m := dStr(d, "eski_odeme"); m != "" {
 				t += " (" + PaymentLabel(m) + ")"
+			}
+			if m := dStr(d, "musteri"); m != "" {
+				t += " · veresiye " + m + " borcundan düşüldü"
 			}
 		}
 		return t
 	case "yeniden_acildi":
 		t := fmt.Sprintf("Sebep: %s · %s", dStr(d, "sebep"), dMoney(d, "tutar"))
-		if m := dStr(d, "eski_odeme"); m != "" {
+		if p := dStr(d, "eski_parcalar"); p != "" {
+			t += " · ödeme (" + p + ") kaldırıldı"
+		} else if m := dStr(d, "eski_odeme"); m != "" {
 			t += " · ödeme " + PaymentLabel(m) + " kaldırıldı"
+		}
+		if m := dStr(d, "musteri"); m != "" {
+			t += " · veresiye " + m + " borcundan düşüldü"
 		}
 		if o, n := dStr(d, "eski_masa"), dStr(d, "masa"); o != n && o != "" {
 			t += fmt.Sprintf(" · Masa %s → Masa %s", o, n)
@@ -165,8 +178,13 @@ func describeAudit(action string, no int64, d map[string]any) string {
 		return fmt.Sprintf("Masa %s · ürünler silinip masa boşaltıldı", dStr(d, "masa"))
 	case "odendi":
 		t := fmt.Sprintf("%s · Masa %s", dMoney(d, "tutar"), dStr(d, "masa"))
-		if m := dStr(d, "odeme"); m != "" {
+		if p := dStr(d, "parcalar"); p != "" {
+			t += " · " + p
+		} else if m := dStr(d, "odeme"); m != "" {
 			t += " · " + PaymentLabel(m)
+		}
+		if m := dStr(d, "musteri"); m != "" {
+			t += " · veresiye: " + m
 		}
 		if dStr(d, "basildi") == "hayır" {
 			t += " · basılmadan"
@@ -175,7 +193,36 @@ func describeAudit(action string, no int64, d map[string]any) string {
 		}
 		return t
 	case "odeme_degisti":
-		return fmt.Sprintf("%s → %s", PaymentLabel(dStr(d, "eski")), PaymentLabel(dStr(d, "yeni")))
+		o, n := dStr(d, "eski_metin"), dStr(d, "yeni_metin")
+		if o == "" {
+			o, n = PaymentLabel(dStr(d, "eski")), PaymentLabel(dStr(d, "yeni"))
+		}
+		if m := dStr(d, "eski_musteri"); m != "" {
+			o += " (" + m + ")"
+		}
+		if m := dStr(d, "musteri"); m != "" {
+			n += " (" + m + ")"
+		}
+		return o + " → " + n
+	case "veresiye_tahsil":
+		t := fmt.Sprintf("%s · %s · %s · kalan borç %s", dStr(d, "musteri"), dMoney(d, "tutar"), PaymentLabel(dStr(d, "odeme")), dMoney(d, "kalan"))
+		if n := dStr(d, "not"); n != "" {
+			t += " · " + n
+		}
+		return t
+	case "veresiye_tahsil_iptal":
+		return fmt.Sprintf("%s · %s %s · sebep: %s · borç %s", dStr(d, "musteri"), dMoney(d, "tutar"), PaymentLabel(dStr(d, "odeme")), dStr(d, "sebep"), dMoney(d, "kalan"))
+	case "veresiye_musteri":
+		t := dStr(d, "ad")
+		if p := dStr(d, "telefon"); p != "" {
+			t += " · " + p
+		}
+		return t
+	case "veresiye_musteri_degisti":
+		if o, n := dStr(d, "eski_ad"), dStr(d, "ad"); o != n {
+			return o + " → " + n
+		}
+		return dStr(d, "ad") + " · bilgiler güncellendi"
 	case "basildi":
 		t := fmt.Sprintf("%s. baskı · %s", dStr(d, "sira"), dMoney(d, "tutar"))
 		if dStr(d, "kopya") == "evet" {
@@ -454,13 +501,17 @@ func (s *Service) Detail(no int64) (*AdisyonDetail, error) {
 	return d, rows.Err()
 }
 
-// ChangePayment ödenmiş adisyonun ödeme şeklini düzeltir (yönetici şifresi; gün kapanmamış olmalı).
+// ChangePayment ödenmiş adisyonun ödemesini düzeltir (yönetici şifresi): tek
+// şekil (method) ya da parçalar (parts) ve veresiye müşterisi. Kapatılmış günün
+// adisyonu değiştirilemez. Veresiye kaldırılırken borç eksiye düşmemelidir.
 func (s *Service) ChangePayment(no int64, method, pin string) (*State, error) {
+	return s.SetPayments(no, []PaymentPart{{Method: method}}, nil, pin)
+}
+
+// SetPayments ChangePayment'ın parçalı ve veresiye destekli hâlidir.
+func (s *Service) SetPayments(no int64, parts []PaymentPart, credit *CreditRef, pin string) (*State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !validPayment(method) {
-		return nil, uerr("invalid", "Ödeme şeklini seçin.")
-	}
 	a, err := loadAdisyon(s.db, no)
 	if err != nil {
 		return nil, err
@@ -473,17 +524,56 @@ func (s *Service) ChangePayment(no int64, method, pin string) (*State, error) {
 	} else if closed {
 		return nil, uerr("closed", "Bu adisyonun günü kapatılmış; değiştirilemez.")
 	}
-	if a.PaymentMethod == method {
+	ps, err := normalizeParts(parts, a.Total)
+	if err != nil {
+		return nil, err
+	}
+	old := partsOf(a)
+	same := len(old) == len(ps)
+	for i := range ps {
+		if same && (old[i].Method != ps[i].Method || old[i].Amount != ps[i].Amount) {
+			same = false
+		}
+	}
+	if same && (creditPart(ps) == 0 || credit == nil || credit.ID == a.CreditCustomerID ||
+		(credit.ID == 0 && trFold(credit.Name) == trFold(a.CreditCustomer))) {
 		return s.stateLocked()
 	}
 	if err := s.confirmPin(pin, "Ödeme şeklini değiştirmek yönetici şifresi ister."); err != nil {
 		return nil, err
 	}
 	err = s.withTx(func(tx *sql.Tx) error {
-		if _, err := tx.Exec(`UPDATE adisyons SET payment_method=? WHERE no=? AND status='paid'`, method, no); err != nil {
+		now := s.now()
+		var cid int64
+		var name string
+		if creditPart(ps) > 0 {
+			ref := credit
+			if ref == nil && a.CreditCustomerID > 0 {
+				ref = &CreditRef{ID: a.CreditCustomerID}
+			}
+			if cid, name, err = resolveCustomer(tx, ref, now); err != nil {
+				return err
+			}
+		}
+		keep := int64(0)
+		if cid == a.CreditCustomerID {
+			keep = creditPart(ps)
+		}
+		if err := checkCreditRemoval(tx, a, keep); err != nil {
 			return err
 		}
-		audit(tx, s.now(), "odeme_degisti", no, map[string]any{"eski": a.PaymentMethod, "yeni": method, "tutar": a.Total})
+		if err := writePayments(tx, no, ps, cid); err != nil {
+			return err
+		}
+		d := map[string]any{"eski": a.PaymentMethod, "yeni": methodOf(ps), "tutar": a.Total,
+			"eski_metin": PaymentText(old, a.PaymentMethod), "yeni_metin": PaymentText(ps, "")}
+		if a.CreditCustomer != "" {
+			d["eski_musteri"] = a.CreditCustomer
+		}
+		if name != "" {
+			d["musteri"] = name
+		}
+		audit(tx, now, "odeme_degisti", no, d)
 		return nil
 	})
 	if err != nil {

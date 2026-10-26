@@ -432,13 +432,14 @@ func loadWaiters(q querier, activeOnly bool) ([]Waiter, error) {
 
 const adisyonCols = `no,business_date,table_no,COALESCE(waiter_id,0),waiter_name,status,opened_at,
 	COALESCE(printed_at,''),COALESCE(closed_at,''),print_count,changed,print_failed,COALESCE(cancel_reason,''),total,vat_total,
-	COALESCE(payment_method,''),COALESCE(merged_into,0),discount_percent,discount_amount`
+	COALESCE(payment_method,''),COALESCE(merged_into,0),discount_percent,discount_amount,COALESCE(credit_customer_id,0),
+	COALESCE((SELECT name FROM credit_customers c WHERE c.id=adisyons.credit_customer_id),'')`
 
 func scanAdisyon(sc interface{ Scan(...any) error }) (*Adisyon, error) {
 	var a Adisyon
 	err := sc.Scan(&a.No, &a.BusinessDate, &a.Table, &a.WaiterID, &a.WaiterName, &a.Status, &a.OpenedAt,
 		&a.PrintedAt, &a.ClosedAt, &a.PrintCount, &a.Changed, &a.PrintFailed, &a.CancelReason, &a.Total, &a.VATTotal,
-		&a.PaymentMethod, &a.MergedInto, &a.DiscountPercent, &a.DiscountAmount)
+		&a.PaymentMethod, &a.MergedInto, &a.DiscountPercent, &a.DiscountAmount, &a.CreditCustomerID, &a.CreditCustomer)
 	if err != nil {
 		return nil, err
 	}
@@ -473,6 +474,12 @@ func loadAdisyon(q querier, no int64) (*Adisyon, error) {
 	}
 	if a.Lines, err = loadLines(q, no); err != nil {
 		return nil, err
+	}
+	if a.Status == StatusPaid {
+		if a.Payments, err = loadPayments(q, no); err != nil {
+			return nil, err
+		}
+		a.Payments = partsOf(a)
 	}
 	return a, nil
 }
@@ -667,6 +674,12 @@ func (s *Service) stateLocked() (*State, error) {
 		st.Backup.DriveDir = s.set.DriveBackupDir
 	}
 	st.PaymentMethods = PaymentMethods
+	st.CollectMethods = CollectMethods
+	if list, total, err := creditBriefs(s.db); err == nil {
+		st.CreditCustomers, st.CreditBalance = list, total
+	} else {
+		st.CreditCustomers = []CreditBrief{}
+	}
 	st.ClockDate = businessDate(now)
 	if day, err := openBusinessDay(s.db, now); err == nil {
 		st.BusinessDate = day

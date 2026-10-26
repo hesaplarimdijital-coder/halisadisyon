@@ -311,9 +311,11 @@ func (s *Server) call(name string, body []byte) (any, *core.State, error) {
 		return out, st, err
 	case "pay":
 		req, err := decode[struct {
-			No     int64  `json:"no"`
-			Method string `json:"method"`
-			Total  *int64 `json:"total"` // ekranda gösterilen toplam
+			No     int64              `json:"no"`
+			Method string             `json:"method"`
+			Parts  []core.PaymentPart `json:"parts"` // parçalı ödeme
+			Credit *core.CreditRef    `json:"credit"`
+			Total  *int64             `json:"total"` // ekranda gösterilen toplam
 		}](body)
 		if err != nil {
 			return nil, nil, err
@@ -322,7 +324,11 @@ func (s *Server) call(name string, body []byte) (any, *core.State, error) {
 		if req.Total != nil {
 			expected = *req.Total
 		}
-		out, st, err := svc.PayChecked(req.No, req.Method, expected)
+		parts := req.Parts
+		if len(parts) == 0 {
+			parts = []core.PaymentPart{{Method: req.Method}}
+		}
+		out, st, err := svc.PayParts(req.No, parts, req.Credit, expected)
 		return out, st, err
 	case "moveTable":
 		req, err := decode[struct {
@@ -661,15 +667,69 @@ func (s *Server) call(name string, body []byte) (any, *core.State, error) {
 		return d, nil, err
 	case "changePayment":
 		req, err := decode[struct {
-			No     int64  `json:"no"`
+			No     int64              `json:"no"`
+			Method string             `json:"method"`
+			Parts  []core.PaymentPart `json:"parts"`
+			Credit *core.CreditRef    `json:"credit"`
+			Pin    string             `json:"pin"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		parts := req.Parts
+		if len(parts) == 0 {
+			parts = []core.PaymentPart{{Method: req.Method}}
+		}
+		st, err := svc.SetPayments(req.No, parts, req.Credit, req.Pin)
+		return nil, st, err
+	// ---- veresiye ----
+	case "credits":
+		out, err := svc.Credits()
+		return out, nil, err
+	case "creditAccount":
+		req, err := decode[struct {
+			ID int64 `json:"id"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		out, err := svc.CreditAccount(req.ID)
+		return out, nil, err
+	case "collectCredit":
+		req, err := decode[struct {
+			ID     int64  `json:"id"`
+			Amount int64  `json:"amount"`
 			Method string `json:"method"`
+			Note   string `json:"note"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		out, st, err := svc.CollectCredit(req.ID, req.Amount, req.Method, req.Note)
+		return out, st, err
+	case "cancelCollection":
+		req, err := decode[struct {
+			ID     int64  `json:"id"`
+			Reason string `json:"reason"`
 			Pin    string `json:"pin"`
 		}](body)
 		if err != nil {
 			return nil, nil, err
 		}
-		st, err := svc.ChangePayment(req.No, req.Method, req.Pin)
-		return nil, st, err
+		out, st, err := svc.CancelCollection(req.ID, req.Reason, req.Pin)
+		return out, st, err
+	case "saveCreditCustomer":
+		req, err := decode[struct {
+			ID    int64  `json:"id"`
+			Name  string `json:"name"`
+			Phone string `json:"phone"`
+			Note  string `json:"note"`
+		}](body)
+		if err != nil {
+			return nil, nil, err
+		}
+		out, st, err := svc.SaveCreditCustomer(req.ID, req.Name, req.Phone, req.Note)
+		return out, st, err
 	case "bulkPrice":
 		req, err := decode[core.BulkPriceInput](body)
 		if err != nil {

@@ -18,8 +18,8 @@ import (
 
 // SchemaVersion programın beklediği şema sürümüdür.
 // 1: ilk sürüm (1.0.0) · 2: ödeme şekli, gün sonu, masa birleştirme, dış gönderim kuyruğu (2.0.0)
-// 3: yüzde indirim (2.1.0) · 4: ikram kalemi (2.2.0)
-const SchemaVersion = 4
+// 3: yüzde indirim (2.1.0) · 4: ikram kalemi (2.2.0) · 5: parçalı ödeme ve veresiye (2.3.0)
+const SchemaVersion = 5
 
 // Store açık veritabanı bağlantısını tutar.
 type Store struct {
@@ -367,5 +367,43 @@ ALTER TABLE adisyons ADD COLUMN discount_amount INTEGER NOT NULL DEFAULT 0;
 	4: `
 -- İkram kalemi: adisyonda ve fişte görünür, tutara ve KDV'ye girmez.
 ALTER TABLE adisyon_lines ADD COLUMN comp INTEGER NOT NULL DEFAULT 0;
+`,
+	5: `
+-- Ödeme parçaları: ödenen adisyonun her ödeme şekline düşen tutarı (kuruş).
+-- Tek şekille ödenen adisyonda tek satır olur; toplamı adisyon tutarına eşittir.
+-- adisyons.payment_method tek şekilde o şekil, parçalı ödemede 'parcali' olur.
+CREATE TABLE adisyon_payments (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	adisyon_no INTEGER NOT NULL REFERENCES adisyons(no),
+	method     TEXT NOT NULL,                 -- 'nakit' | 'kart' | 'havale' | 'veresiye'
+	amount     INTEGER NOT NULL CHECK (amount >= 0)
+);
+CREATE INDEX adisyon_payments_no ON adisyon_payments(adisyon_no);
+INSERT INTO adisyon_payments(adisyon_no, method, amount)
+	SELECT no, payment_method, total FROM adisyons WHERE status='paid' AND COALESCE(payment_method,'') <> '';
+
+-- Veresiye müşterileri ve tahsilatlar. Borç = veresiye parçaları − tahsilatlar.
+CREATE TABLE credit_customers (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	name       TEXT NOT NULL,
+	phone      TEXT NOT NULL DEFAULT '',
+	note       TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+ALTER TABLE adisyons ADD COLUMN credit_customer_id INTEGER REFERENCES credit_customers(id);
+CREATE INDEX adisyons_credit ON adisyons(credit_customer_id);
+CREATE TABLE credit_payments (
+	id            INTEGER PRIMARY KEY AUTOINCREMENT,
+	customer_id   INTEGER NOT NULL REFERENCES credit_customers(id),
+	amount        INTEGER NOT NULL CHECK (amount > 0),
+	method        TEXT NOT NULL,              -- 'nakit' | 'kart' | 'havale'
+	at            TEXT NOT NULL,
+	business_date TEXT NOT NULL,              -- tahsilatın kasaya girdiği iş günü
+	note          TEXT NOT NULL DEFAULT '',
+	cancelled_at  TEXT,
+	cancel_reason TEXT
+);
+CREATE INDEX credit_payments_customer ON credit_payments(customer_id);
+CREATE INDEX credit_payments_day ON credit_payments(business_date);
 `,
 }

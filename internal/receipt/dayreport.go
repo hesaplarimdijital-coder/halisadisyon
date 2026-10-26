@@ -46,6 +46,11 @@ type DayReport struct {
 	VATs           []VATGroup
 	Avg            int64
 	Payments       []NameAmount
+	Split          int          // parçalı ödenen adisyon sayısı
+	CreditGiven    []NameAmount // veresiyeye yazılanlar (ad, adisyon no Count'ta)
+	Collections    []NameAmount // veresiye tahsilatları (ad · şekil)
+	Drawer         []NameAmount // kasaya giren: satış + tahsilat (veresiye hariç)
+	DrawerTotal    int64
 	Waiters        []NameAmount
 	Products       []ProductLine
 	Warnings       []string
@@ -136,6 +141,35 @@ func RenderDaySummary(b Business, d DayReport, width int) (*image.Gray, error) {
 		for _, p := range d.Payments {
 			c.row(fmt.Sprintf("%s (%d)", p.Name, p.Count), f, money.Format(p.Total), fb, 0, int(3*sf))
 		}
+	}
+	if d.Split > 0 {
+		c.para(fmt.Sprintf("%d adisyon parçalı ödendi; her parça kendi şekline sayıldı.", d.Split), face(regular, 21*sf), left, int(3*sf))
+	}
+	if len(d.CreditGiven) > 0 || len(d.Collections) > 0 {
+		section("VERESİYE")
+		var gt, ct int64
+		for _, v := range d.CreditGiven {
+			c.row(fmt.Sprintf("%s · No %d", v.Name, v.Count), f, money.Format(v.Total), fb, 0, int(3*sf))
+			gt += v.Total
+		}
+		if len(d.CreditGiven) > 0 {
+			c.row("Veresiyeye yazılan", fb, money.Format(gt), fb, 0, int(6*sf))
+		}
+		for _, v := range d.Collections {
+			c.row("Tahsilat · "+v.Name, f, money.Format(v.Total), fb, 0, int(3*sf))
+			ct += v.Total
+		}
+		if len(d.Collections) > 0 {
+			c.row("Tahsil edilen (ciroya dahil değil)", fb, money.Format(ct), fb, 0, int(3*sf))
+		}
+	}
+	if len(d.Drawer) > 0 && (len(d.CreditGiven) > 0 || len(d.Collections) > 0) {
+		section("KASAYA GİREN")
+		for _, p := range d.Drawer {
+			c.row(p.Name, f, money.Format(p.Total), fb, 0, int(3*sf))
+		}
+		c.row("Toplam", fb, money.Format(d.DrawerTotal), fb, 0, int(3*sf))
+		c.para("Satış + veresiye tahsilatı; veresiye hariç.", face(regular, 21*sf), left, int(3*sf))
 	}
 	if len(d.Waiters) > 0 {
 		section("GARSONLAR")

@@ -412,7 +412,7 @@ func TestStatsPeriodsAndBreakdowns(t *testing.T) {
 	// Excel raporu dört sayfa ve geçerli XML içerir.
 	list, _ := e.svc.periodAdisyons(st.From, st.To)
 	var buf bytes.Buffer
-	if err := xlsx.Write(&buf, excelReport("Halis", st, list, e.clk.now())); err != nil {
+	if err := xlsx.Write(&buf, excelReport("Halis", st, list, nil, e.clk.now())); err != nil {
 		t.Fatal(err)
 	}
 	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))

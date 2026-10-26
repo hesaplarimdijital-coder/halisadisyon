@@ -381,13 +381,27 @@ func (s *Service) Cancel(no int64, reason, pin string) (*State, error) {
 			return uerr("closed", "Adisyon %d'in günü kapatılmış; değiştirilemez.", no)
 		}
 		now := s.now()
-		if _, err := tx.Exec(`UPDATE adisyons SET status='cancelled', closed_at=?, cancel_reason=?, payment_method=NULL WHERE no=?`,
+		if a.Status == StatusPaid {
+			if err := checkCreditRemoval(tx, a, 0); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(`UPDATE adisyons SET status='cancelled', closed_at=?, cancel_reason=? WHERE no=?`,
 			stamp(now), reason, no); err != nil {
+			return err
+		}
+		if err := clearPayments(tx, no); err != nil {
 			return err
 		}
 		d := map[string]any{"sebep": reason, "eski_durum": a.Status, "tutar": a.Total, "masa": a.Table}
 		if a.Status == StatusPaid {
 			d["eski_odeme"] = a.PaymentMethod
+			if len(a.Payments) > 1 {
+				d["eski_parcalar"] = PaymentText(a.Payments, "")
+			}
+			if a.CreditCustomer != "" {
+				d["musteri"] = a.CreditCustomer
+			}
 		}
 		audit(tx, now, "iptal", no, d)
 		return nil
@@ -406,11 +420,24 @@ func (s *Service) Pay(no int64, method string) (*PayOutcome, *State, error) {
 	return s.PayChecked(no, method, -1)
 }
 
-// PayChecked hesabı kapatır; expected ≥ 0 ise ekranda gösterilen toplam
-// kayıttakiyle aynı olmalıdır (bu arada ürün eklendiyse kapatılmaz).
+// PayChecked hesabı tek ödeme şekliyle kapatır; expected ≥ 0 ise ekranda
+// gösterilen toplam kayıttakiyle aynı olmalıdır (bu arada ürün eklendiyse
+// kapatılmaz). Veresiye için PayParts kullanılır (müşteri adı gerekir).
 func (s *Service) PayChecked(no int64, method string, expected int64) (*PayOutcome, *State, error) {
-	if !validPayment(method) {
-		return nil, nil, uerr("invalid", "Ödeme şeklini seçin: Nakit, Kredi Kartı ya da Havale.")
+	return s.PayParts(no, []PaymentPart{{Method: method}}, nil, expected)
+}
+
+// PayParts hesabı bir ya da birden çok ödeme şekliyle kapatır. Tek parça
+// adisyonun tamamıdır; parçalı ödemede parçaların toplamı hesaba eşit olmalıdır.
+// Veresiye parçası varsa credit müşteriyi verir (adıyla bulunur ya da açılır).
+func (s *Service) PayParts(no int64, parts []PaymentPart, credit *CreditRef, expected int64) (*PayOutcome, *State, error) {
+	for _, p := range parts {
+		if !validPayment(p.Method) {
+			return nil, nil, uerr("invalid", "Ödeme şeklini seçin: Nakit, Kredi Kartı, Havale ya da Veresiye.")
+		}
+	}
+	if len(parts) == 0 {
+		return nil, nil, uerr("invalid", "Ödeme şeklini seçin: Nakit, Kredi Kartı, Havale ya da Veresiye.")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -418,7 +445,7 @@ func (s *Service) PayChecked(no int64, method string, expected int64) (*PayOutco
 	if s.inPrint[no] {
 		return nil, nil, errBusy(no)
 	}
-	var total int64
+	out := &PayOutcome{Paid: true, No: no}
 	err := s.withTx(func(tx *sql.Tx) error {
 		a, err := loadActiveOrFail(tx, no)
 		if err != nil {
@@ -430,13 +457,38 @@ func (s *Service) PayChecked(no int64, method string, expected int64) (*PayOutco
 		if expected >= 0 && expected != a.Total {
 			return uerr("changed", "Adisyon bu arada değişti; yeni toplam %s. Kontrol edip yeniden kapatın.", money.TL(a.Total))
 		}
-		total = a.Total
-		now := s.now()
-		if _, err := tx.Exec(`UPDATE adisyons SET status='paid', closed_at=?, payment_method=? WHERE no=?`, stamp(now), method, no); err != nil {
+		ps, err := normalizeParts(parts, a.Total)
+		if err != nil {
 			return err
 		}
-		audit(tx, now, "odendi", no, map[string]any{"tutar": a.Total, "basildi": a.PrintCount > 0, "degisti": a.PrintCount > 0 && a.Changed,
-			"masa": a.Table, "odeme": method})
+		now := s.now()
+		var cid int64
+		if creditPart(ps) > 0 {
+			if cid, out.Customer, err = resolveCustomer(tx, credit, now); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(`UPDATE adisyons SET status='paid', closed_at=? WHERE no=?`, stamp(now), no); err != nil {
+			return err
+		}
+		if err := writePayments(tx, no, ps, cid); err != nil {
+			return err
+		}
+		for i := range ps {
+			ps[i].Label = PaymentLabel(ps[i].Method)
+		}
+		out.Total, out.Parts, out.Method = a.Total, ps, methodOf(ps)
+		out.MethodLabel = PaymentText(ps, "")
+		d := map[string]any{"tutar": a.Total, "basildi": a.PrintCount > 0, "degisti": a.PrintCount > 0 && a.Changed,
+			"masa": a.Table, "odeme": out.Method}
+		if len(ps) > 1 {
+			d["parcalar"] = PaymentText(ps, "")
+		}
+		if out.Customer != "" {
+			d["musteri"] = out.Customer
+			d["veresiye"] = creditPart(ps)
+		}
+		audit(tx, now, "odendi", no, d)
 		return nil
 	})
 	if err != nil {
@@ -444,7 +496,7 @@ func (s *Service) PayChecked(no int64, method string, expected int64) (*PayOutco
 	}
 	delete(s.undo, no)
 	st, err := s.stateLocked()
-	return &PayOutcome{Paid: true, No: no, Total: total, Method: method, MethodLabel: PaymentLabel(method)}, st, err
+	return out, st, err
 }
 
 func errBusy(no int64) error {

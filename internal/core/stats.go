@@ -41,7 +41,9 @@ type DayPoint struct {
 	Cash      int64  `json:"cash"`
 	Card      int64  `json:"card"`
 	Transfer  int64  `json:"transfer"`
-	Unknown   int64  `json:"unknown"` // ödeme şekli kaydı olmayan (eski sürüm)
+	Credit    int64  `json:"credit"`    // veresiyeye yazılan
+	Unknown   int64  `json:"unknown"`   // ödeme şekli kaydı olmayan (eski sürüm)
+	Collected int64  `json:"collected"` // veresiye tahsilatı (ciroya girmez)
 	Cancelled int    `json:"cancelled"`
 	VAT       int64  `json:"vat"`
 	Discount  int64  `json:"discount"` // yapılan indirim toplamı (kuruş)
@@ -98,6 +100,8 @@ type Stats struct {
 	Hours          []HourPoint   `json:"hours"`
 	ByPayment      []PayTotal    `json:"byPayment"`
 	ByWaiter       []WaiterTotal `json:"byWaiter"`
+	CreditGiven    int64         `json:"creditGiven"` // dönemde veresiyeye yazılan
+	Collected      int64         `json:"collected"`   // dönemde alınan veresiye tahsilatı
 }
 
 func monthLabel(t time.Time) string {
@@ -288,13 +292,15 @@ func (s *Service) stats(q StatsQuery) (*Stats, error) {
 			st.Days = append(st.Days, DayPoint{Date: d.Format(dateLayout)})
 		}
 	}
-	rows, err := s.db.Query(`SELECT business_date, COUNT(*), COALESCE(SUM(total),0), COALESCE(SUM(vat_total),0),
-		COALESCE(SUM(CASE WHEN payment_method='nakit' THEN total END),0),
-		COALESCE(SUM(CASE WHEN payment_method='kart' THEN total END),0),
-		COALESCE(SUM(CASE WHEN payment_method='havale' THEN total END),0),
-		COALESCE(SUM(CASE WHEN COALESCE(payment_method,'') NOT IN ('nakit','kart','havale') THEN total END),0),
-		COALESCE(SUM(discount_amount),0), COUNT(CASE WHEN discount_amount>0 THEN 1 END)
-		FROM adisyons WHERE status='paid' AND business_date BETWEEN ? AND ? GROUP BY business_date`, F, T)
+	rows, err := s.db.Query(`SELECT a.business_date, COUNT(*), COALESCE(SUM(a.total),0), COALESCE(SUM(a.vat_total),0),
+		COALESCE(SUM(x.cash),0), COALESCE(SUM(x.card),0), COALESCE(SUM(x.transfer),0), COALESCE(SUM(x.credit),0),
+		COALESCE(SUM(a.total - COALESCE(x.parts,0)),0),
+		COALESCE(SUM(a.discount_amount),0), COUNT(CASE WHEN a.discount_amount>0 THEN 1 END)
+		FROM adisyons a LEFT JOIN (SELECT adisyon_no,
+			SUM(CASE WHEN method='nakit' THEN amount END) cash, SUM(CASE WHEN method='kart' THEN amount END) card,
+			SUM(CASE WHEN method='havale' THEN amount END) transfer, SUM(CASE WHEN method='veresiye' THEN amount END) credit,
+			SUM(amount) parts FROM adisyon_payments GROUP BY adisyon_no) x ON x.adisyon_no=a.no
+		WHERE a.status='paid' AND a.business_date BETWEEN ? AND ? GROUP BY a.business_date`, F, T)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +308,7 @@ func (s *Service) stats(q StatsQuery) (*Stats, error) {
 	for rows.Next() {
 		var d DayPoint
 		var discounts int
-		if err := rows.Scan(&d.Date, &d.Count, &d.Revenue, &d.VAT, &d.Cash, &d.Card, &d.Transfer, &d.Unknown, &d.Discount, &discounts); err != nil {
+		if err := rows.Scan(&d.Date, &d.Count, &d.Revenue, &d.VAT, &d.Cash, &d.Card, &d.Transfer, &d.Credit, &d.Unknown, &d.Discount, &discounts); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -437,8 +443,10 @@ func (s *Service) stats(q StatsQuery) (*Stats, error) {
 
 	// Ödeme şekilleri
 	pay := map[string]*PayTotal{}
-	rows, err = s.db.Query(`SELECT COALESCE(payment_method,''), COUNT(*), COALESCE(SUM(total),0) FROM adisyons
-		WHERE status='paid' AND business_date BETWEEN ? AND ? GROUP BY 1`, F, T)
+	rows, err = s.db.Query(`SELECT p.method, COUNT(*), COALESCE(SUM(p.amount),0) FROM adisyon_payments p JOIN adisyons a ON a.no=p.adisyon_no
+		WHERE a.status='paid' AND a.business_date BETWEEN ? AND ? GROUP BY 1
+		UNION ALL SELECT '', COUNT(*), COALESCE(SUM(total),0) FROM adisyons a WHERE a.status='paid' AND a.business_date BETWEEN ? AND ?
+			AND NOT EXISTS (SELECT 1 FROM adisyon_payments p WHERE p.adisyon_no=a.no) HAVING COUNT(*)>0`, F, T, F, T)
 	if err != nil {
 		return nil, err
 	}
@@ -464,8 +472,32 @@ func (s *Service) stats(q StatsQuery) (*Stats, error) {
 		p := PayTotal{Method: m.ID, Label: m.Label}
 		if x := pay[m.ID]; x != nil {
 			p.Count, p.Total = x.Count, x.Total
+		} else if m.ID == PayCredit {
+			continue // veresiye yalnız varsa gösterilir
 		}
 		st.ByPayment = append(st.ByPayment, p)
+	}
+	// Veresiye tahsilatları (gün gün; ciroya girmez).
+	rows, err = s.db.Query(`SELECT business_date, COALESCE(SUM(amount),0) FROM credit_payments
+		WHERE cancelled_at IS NULL AND business_date BETWEEN ? AND ? GROUP BY business_date`, F, T)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var d string
+		var v int64
+		if err := rows.Scan(&d, &v); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if i, ok := index[d]; ok {
+			st.Days[i].Collected = v
+		}
+		st.Collected += v
+	}
+	rows.Close()
+	for _, d := range st.Days {
+		st.CreditGiven += d.Credit
 	}
 	if x := pay[""]; x != nil {
 		st.ByPayment = append(st.ByPayment, PayTotal{Method: "", Label: "Belirtilmemiş", Count: x.Count, Total: x.Total})
@@ -531,5 +563,15 @@ func (s *Service) periodAdisyons(from, to string) ([]Adisyon, error) {
 		}
 		out = append(out, *a)
 	}
-	return out, rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := attachPayments(s.db, out, `a.business_date BETWEEN ? AND ?`, from, to); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Payments = partsOf(&out[i])
+	}
+	return out, nil
 }

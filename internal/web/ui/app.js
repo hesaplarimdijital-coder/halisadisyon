@@ -28,7 +28,11 @@ const stampText = iso => { if (!iso) return ''; const d = new Date(iso); return 
 const nf0 = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const TL0 = k => nf0.format(Math.round(k / 100)) + '\u00a0₺';
-const payLabel = m => { const p = (S && S.paymentMethods || []).find(x => x.id === m); return p ? p.label : (m ? m : 'Belirtilmemiş'); };
+const payLabel = m => { const p = (S && S.paymentMethods || []).find(x => x.id === m); return p ? p.label : m === 'parcali' ? 'Parçalı' : (m ? m : 'Belirtilmemiş'); };
+// Ödenmiş adisyonun ödeme metni: "Nakit" ya da "Nakit 500,00 ₺ + Kredi Kartı 230,00 ₺".
+const payText = a => (a.payments || []).length > 1 ? a.payments.map(p => payLabel(p.method) + ' ' + TL(p.amount)).join(' + ') : payLabel((a.payments && a.payments[0] && a.payments[0].method) || a.paymentMethod);
+// Türkçe büyük/küçük harf duyarsız karşılaştırma (İ/ı).
+const fold = s => String(s || '').replace(/İ/g, 'i').replace(/I/g, 'ı').toLocaleLowerCase('tr').replace(/\s+/g, ' ').trim();
 const sinceText = iso => { const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000)); return m < 1 ? 'az önce' : m < 60 ? m + ' dk' : Math.floor(m / 60) + ' sa ' + (m % 60) + ' dk'; };
 // Sayıya Türkçe ek: 9’a, 12’ye (son okunan kelimeye göre)
 const SFX1 = [null, ['e', 'den'], ['ye', 'den'], ['e', 'ten'], ['e', 'ten'], ['e', 'ten'], ['ya', 'dan'], ['ye', 'den'], ['e', 'den'], ['a', 'dan']];
@@ -93,7 +97,10 @@ const ICONS = {
   right: '<path d="M9 18l6-6-6-6"/>',
   send: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/>',
   copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
-  cloud: '<path d="M7 18a5 5 0 1 1 .9-9.9A6 6 0 0 1 19 10a4 4 0 0 1 0 8z"/>'
+  cloud: '<path d="M7 18a5 5 0 1 1 .9-9.9A6 6 0 0 1 19 10a4 4 0 0 1 0 8z"/>',
+  notebook: '<path d="M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6z"/><path d="M6 3v18M4 7h4M4 12h4M4 17h4M11 8h5M11 12h5"/>',
+  split: '<path d="M12 3v18"/><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 12h1M16 12h1"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'
 };
 const ic = (n, s = 22, sw = 2, cls = '') => '<svg class="ic ' + cls + '" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + sw + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[n] || '') + '</svg>';
 
@@ -101,7 +108,7 @@ const ic = (n, s = 22, sw = 2, cls = '') => '<svg class="ic ' + cls + '" width="
 let S = null;                 // programdan gelen güncel durum
 let unlockDeadline = 0;
 const LOCKED = new Set(['gunsonu', 'istatistik', 'kayit', 'urunler', 'ayarlar']);
-const PAY_ICON = { nakit: 'cash', kart: 'card', havale: 'bank' };
+const PAY_ICON = { nakit: 'cash', kart: 'card', havale: 'bank', veresiye: 'notebook', parcali: 'split' };
 const REASONS = ['Yanlış masa', 'Müşteri vazgeçti', 'Hatalı giriş'];
 const ui = {
   route: 'masalar', table: null,
@@ -118,7 +125,8 @@ const ui = {
   stats: { mode: 'month', from: '', to: '', data: null, loading: false, product: 0, sort: { key: 'date', dir: 1 } },
   audit: { from: '', to: '', kind: '', no: '', rows: null, more: false, loading: false },
   sample: { image: '', timer: 0, seq: 0 }, // ayarlardaki canlı fiş önizlemesi
-  bulk: null                  // toplu zam formu
+  bulk: null,                 // toplu zam formu
+  credit: { data: null, loading: false, filter: 'debt', q: '' } // veresiye ekranı
 };
 
 function setState(st) {
@@ -326,6 +334,7 @@ function go(name, table) {
   const prev = ui.route;
   ui.route = name; ui.table = table == null ? null : table;
   if (name === 'ayarlar' && !ui.printers) loadPrinters();
+  if (name === 'veresiye') loadCredits();
   if (name === 'gunsonu') loadDay(table || (prev === name || prev === 'kayit' ? ui.day.date : ''));
   if (name === 'istatistik' && (prev !== name || !ui.stats.data)) loadStats();
   if (name === 'kayit') { if (table) { ui.audit.no = String(table); ui.audit.from = ''; ui.audit.to = ''; } loadAudit(); }
@@ -340,13 +349,13 @@ function header() {
   if (!S.setupDone) {
     return '<header class="top" id="top"><div class="top-in"><div class="brand"><span class="brand-name">' + esc(shortName()) + '</span><span class="brand-sub">Adisyon · İlk kurulum</span></div>' + winButtons() + '</div></header>';
   }
-  const items = [['masalar', 'grid', 'Masalar'], ['gunsonu', 'moon', 'Gün Sonu'], ['istatistik', 'chart', 'İstatistik'], ['urunler', 'list', 'Ürünler'], ['ayarlar', 'sliders', 'Ayarlar']];
+  const items = [['masalar', 'grid', 'Masalar'], ['veresiye', 'notebook', 'Veresiye'], ['gunsonu', 'moon', 'Gün Sonu'], ['istatistik', 'chart', 'İstatistik'], ['urunler', 'list', 'Ürünler'], ['ayarlar', 'sliders', 'Ayarlar']];
   const nav = items.map(([k, i, l]) => {
     const on = ui.route === k || (k === 'masalar' && ui.route === 'siparis') || (k === 'gunsonu' && ui.route === 'kayit');
     const lock = LOCKED.has(k) && !isUnlocked() ? ic('lock', 18, 2, 'lockic') : '';
     return '<button type="button" class="nav-btn' + (on ? ' on' : '') + '" data-act="nav" data-to="' + k + '" data-fk="nav-' + k + '"' + (on ? ' aria-current="page"' : '') + (lock ? ' aria-label="' + l + ', yönetici şifresi gerekir"' : '') + '>' + ic(i) + '<span>' + l + '</span>' + lock + '</button>';
   }).join('');
-  const lockNow = isUnlocked() ? '<button type="button" class="nav-btn quiet" data-act="lock-now" data-fk="lock-now">' + ic('unlock', 20) + '<span>Kilitle</span></button>' : '';
+  const lockNow = isUnlocked() ? '<button type="button" class="nav-btn quiet" data-act="lock-now" data-fk="lock-now" aria-label="Kilitle" title="Yönetici girişini kilitle">' + ic('unlock', 20) + '<span>Kilitle</span></button>' : '';
   return '<header class="top" id="top"><div class="top-in"><div class="brand"><span class="brand-name">' + esc(shortName()) + '</span><span class="brand-sub">Adisyon</span><span class="clock" id="clock">' + clockText() + '</span></div><nav class="nav" aria-label="Ana menü">' + nav + lockNow + '</nav>' + winButtons() + '</div></header>';
 }
 function winButtons() {
@@ -360,6 +369,7 @@ function screen() {
   switch (ui.route) {
     case 'siparis': return scOrder(ui.table);
     case 'gunsonu': return scDay();
+    case 'veresiye': return scCredit();
     case 'istatistik': return scStats();
     case 'kayit': return scAudit();
     case 'urunler': return scProducts();
@@ -526,7 +536,19 @@ function statusPill(r) {
     default: return '<span class="pill accent">Açık</span>';
   }
 }
-const PAY_CLASS = { nakit: 's1', kart: 's2', havale: 's3' };
+// Gün sonu: veresiye ve kasaya giren para (satış + veresiye tahsilatı).
+function dayCreditHTML(D) {
+  const given = D.creditGiven || [], coll = D.collections || [];
+  if (!given.length && !coll.length) return '';
+  const g = given.length ? '<table class="legend-table"><tbody>' + given.map(v => '<tr class="click" data-act="detail" data-no="' + v.no + '" tabindex="0"><td>' + ic('notebook', 18) + ' ' + esc(v.name) + '<br><span class="muted small">No ' + v.no + (v.total !== v.amount ? ' · hesap ' + TL(v.total) : '') + '</span></td><td class="r"><strong>' + TL(v.amount) + '</strong></td></tr>').join('') + '<tr class="total"><td>Veresiyeye yazılan</td><td class="r">' + TL(D.creditGivenTotal) + '</td></tr></tbody></table>' : '<p class="muted">Bugün veresiye yazılmadı.</p>';
+  const c = coll.length ? '<table class="legend-table"><tbody>' + coll.map(v => '<tr class="click" data-act="credit-open" data-id="' + v.customerId + '" tabindex="0"><td>' + esc(v.name) + '<br><span class="muted small">' + hm(v.at) + ' · ' + esc(v.label) + (v.note ? ' · ' + esc(v.note) : '') + '</span></td><td class="r"><strong>' + TL(v.amount) + '</strong></td></tr>').join('') + '<tr class="total"><td>Tahsil edilen</td><td class="r">' + TL(D.collectedTotal) + '</td></tr></tbody></table>' : '<p class="muted">Bugün tahsilat yok.</p>';
+  const sale = m => ((D.byPayment || []).find(p => p.method === m) || { total: 0 }).total;
+  const d = '<table class="legend-table"><tbody>' + (D.drawer || []).map(p => '<tr><td><span class="pm">' + ic(PAY_ICON[p.method] || 'info', 18) + esc(p.label) + '</span><br><span class="muted small">satış ' + TL(sale(p.method)) + ' + tahsilat ' + TL(p.total - sale(p.method)) + '</span></td><td class="r"><strong>' + TL(p.total) + '</strong></td></tr>').join('') + '<tr class="total"><td>Toplam</td><td class="r">' + TL(D.drawerTotal) + '</td></tr></tbody></table>';
+  return '<div class="grid-3"><section class="card pad stack"><div class="card-head"><h2>Veresiye</h2><span class="muted small">ciroya dahil</span></div>' + g + '</section>' +
+    '<section class="card pad stack"><div class="card-head"><h2>Veresiye tahsilatı</h2><span class="muted small">ciroya dahil değil</span></div>' + c + '</section>' +
+    '<section class="card pad stack"><div class="card-head"><h2>Kasaya giren</h2><span class="muted small">kasa sayımı için</span></div>' + d + '</section></div>';
+}
+const PAY_CLASS = { nakit: 's1', kart: 's2', havale: 's3', veresiye: 's4' };
 function payShareHTML(list, total) {
   const rows = list.filter(p => p.method || p.count);
   const bar = total > 0 ? '<div class="sharebar viz" role="img" aria-label="Ödeme şekillerinin payı">' + rows.filter(p => p.total > 0).map(p => '<span style="flex:' + p.total + ' 1 0;background:var(--' + (PAY_CLASS[p.method] || 'axis') + ')" title="' + esc(p.label) + '"></span>').join('') + '</div>' : '';
@@ -554,7 +576,7 @@ function scDay() {
   const vatText = (D.vats || []).length > 1 ? D.vats.map(v => 'KDV %' + v.rate + ' ' + TL(v.vat)).join(' · ') : (D.vats || []).length === 1 ? 'KDV %' + D.vats[0].rate + ': ' + TL(D.vat) : 'KDV ' + TL(D.vat);
   const kpis = '<div class="kpis">' + kpi('Ciro (KDV dahil)', TL(D.revenue), vatText + ' · matrah ' + TL(D.revenue - D.vat)) + kpi('Ödenen adisyon', nf0.format(D.paid), D.firstNo ? 'No ' + D.firstNo + '–' + D.lastNo : '') + kpi('Ortalama adisyon', TL(D.avg)) + feat +
     kpi('İptal', nf0.format(D.cancelled), D.cancelled ? TL(D.cancelledTotal) : (D.merged ? D.merged + ' masa birleşti' : '')) + (D.discounts ? kpi('İndirim', '−' + TL(D.discountTotal), D.discounts + ' adisyon') : '') + (D.comps ? kpi('İkram', nf0.format(D.comps) + ' <span class="muted" style="font-size:20px">ürün</span>', TL(D.compValue) + ' değerinde') : '') + (D.open ? kpi('Açık masa', '<span style="color:var(--bad)">' + D.open + '</span>', 'Gün kapatılmadan önce kapatılmalı') : '') + '</div>';
-  const pay = '<section class="card pad stack"><div class="card-head"><h2>Ödeme şekilleri</h2><span class="muted small">Kasa sayımı için</span></div>' + payShareHTML(D.byPayment || [], D.revenue) + '</section>';
+  const pay = '<section class="card pad stack"><div class="card-head"><h2>Ödeme şekilleri</h2><span class="muted small">' + ((D.creditGiven || []).length || (D.collections || []).length ? 'Satışlar; kasa için aşağıya bakın' : 'Kasa sayımı için') + '</span></div>' + payShareHTML(D.byPayment || [], D.revenue) + (D.split ? '<p class="muted small">' + D.split + ' adisyon parçalı ödendi; her parça kendi şekline sayıldı.</p>' : '') + '</section>';
   const waiters = '<section class="card pad stack"><div class="card-head"><h2>Garsonlar</h2></div>' + ((D.byWaiter || []).length ? '<table class="legend-table"><tbody>' + D.byWaiter.map(w => '<tr><td>' + ic('user', 18) + ' ' + esc(w.name) + '</td><td class="r muted">' + w.count + ' adisyon</td><td class="r"><strong>' + TL(w.total) + '</strong></td></tr>').join('') + '</tbody></table>' : '<p class="muted">Ödenen adisyon yok.</p>') + '</section>';
   const prods = '<section class="card pad stack"><div class="card-head"><h2>Satılan ürünler</h2>' + (D.comps ? '<span class="muted small">+ ' + nf0.format(D.comps) + ' ikram</span>' : '') + '</div>' + ((D.products || []).length ? '<table class="legend-table"><tbody>' + D.products.map(p => '<tr><td>' + esc(p.name) + '</td><td class="r"><strong>' + nf0.format(p.qty) + '</strong> <span class="muted">' + esc(p.unit) + '</span>' + (p.comp ? '<br><span class="muted small">+' + nf0.format(p.comp) + ' ikram</span>' : '') + '</td><td class="r muted">' + TL(p.total) + '</td></tr>').join('') + '</tbody></table>' : '<p class="muted">Henüz satış yok.</p>') + '</section>';
   const f = ui.day.filter;
@@ -562,12 +584,12 @@ function scDay() {
   const chips = [['all', 'Tümü', (D.rows || []).length], ['paid', 'Ödenen', D.paid], ['cancelled', 'İptal ve birleşen', D.cancelled + D.merged], ['open', 'Açık', D.open]].map(([k, l, n]) => '<button type="button" class="chip" data-act="day-filter" data-f="' + k + '" aria-pressed="' + (f === k) + '">' + l + ' (' + n + ')</button>').join('');
   const table = '<section class="card stack" style="padding:16px 0 4px;gap:12px"><div class="card-head" style="padding:0 18px"><h2>Adisyonlar</h2><div class="chips">' + chips + '</div></div>' +
     (rows.length ? '<div class="tablebox scrollbox"><table class="data"><thead><tr><th>No</th><th>Açılış</th><th>Kapanış</th><th>Masa</th><th>Garson</th><th>Durum</th><th>Ödeme</th><th class="r">Tutar</th></tr></thead><tbody>' +
-      rows.map(r => '<tr class="click' + (r.status === 'cancelled' ? ' muted-row' : '') + '" data-act="detail" data-no="' + r.no + '" tabindex="0"><td><strong>' + r.no + '</strong></td><td>' + hm(r.openedAt) + '</td><td>' + hm(r.closedAt) + '</td><td>Masa ' + r.table + '</td><td>' + esc(r.waiter) + '</td><td>' + statusPill(r) + '</td><td>' + (r.status === 'paid' ? '<span class="pm">' + ic(PAY_ICON[r.payment] || 'info', 18) + esc(r.paymentLabel || 'Belirtilmemiş') + '</span>' : '') + '</td><td class="r"><strong>' + TL(r.total) + '</strong>' + (r.discountPercent ? '<br><span class="muted small">%' + r.discountPercent + ' indirim</span>' : '') + '</td></tr>').join('') +
+      rows.map(r => '<tr class="click' + (r.status === 'cancelled' ? ' muted-row' : '') + '" data-act="detail" data-no="' + r.no + '" tabindex="0"><td><strong>' + r.no + '</strong></td><td>' + hm(r.openedAt) + '</td><td>' + hm(r.closedAt) + '</td><td>Masa ' + r.table + '</td><td>' + esc(r.waiter) + '</td><td>' + statusPill(r) + '</td><td>' + (r.status === 'paid' ? '<span class="pm">' + ic(PAY_ICON[r.payment] || 'info', 18) + esc(r.paymentLabel || 'Belirtilmemiş') + '</span>' + (r.customer ? '<br><span class="muted small">Veresiye: ' + esc(r.customer) + '</span>' : '') : '') + '</td><td class="r"><strong>' + TL(r.total) + '</strong>' + (r.discountPercent ? '<br><span class="muted small">%' + r.discountPercent + ' indirim</span>' : '') + '</td></tr>').join('') +
       dayTotals(rows, f, D) + '</tbody></table></div>' : '<p class="muted" style="padding:0 18px 14px">Bu filtrede adisyon yok.</p>') + '</section>';
   const cancels = (D.rows || []).filter(r => r.status === 'cancelled' && !r.mergedInto);
   const cancelCard = cancels.length ? '<section class="card stack" style="padding:16px 0 4px;gap:10px"><div class="card-head" style="padding:0 18px"><h2>İptaller</h2><span class="muted small">' + cancels.length + ' adisyon · ' + TL(D.cancelledTotal) + '</span></div><div class="tablebox"><table class="data"><thead><tr><th>No</th><th>Saat</th><th>Masa</th><th>Garson</th><th>Sebep</th><th class="r">Tutar</th></tr></thead><tbody>' +
     cancels.map(r => '<tr class="click" data-act="detail" data-no="' + r.no + '" tabindex="0"><td><strong>' + r.no + '</strong></td><td>' + hm(r.closedAt || r.openedAt) + '</td><td>Masa ' + r.table + '</td><td>' + esc(r.waiter) + '</td><td>' + esc(r.cancelReason || '') + (r.printCount ? ' <span class="pill warn" style="padding:1px 8px">' + ic('printer', 14, 2.2) + 'basılmıştı</span>' : '') + '</td><td class="r">' + TL(r.total) + '</td></tr>').join('') + '</tbody></table></div></section>' : '';
-  return head + actions + shiftedHTML(D.shifted || []) + unNote + '<section class="card pad stack"><h2 class="sec-title">Kontrol</h2>' + warnHTML + '</section>' + kpis + '<div class="grid-3">' + pay + waiters + prods + '</div>' + cancelCard + table;
+  return head + actions + shiftedHTML(D.shifted || []) + unNote + '<section class="card pad stack"><h2 class="sec-title">Kontrol</h2>' + warnHTML + '</section>' + kpis + '<div class="grid-3">' + pay + waiters + prods + '</div>' + dayCreditHTML(D) + cancelCard + table;
 }
 // Gün listesinin altındaki toplamlar: ödenenler ödeme şekline göre, diğerleri adet ve tutar.
 function dayTotals(rows, f, D) {
@@ -608,10 +630,12 @@ async function showDetail(no) {
   const disc = a.discountPercent ? '<tr><td class="muted">Ara toplam</td><td class="r muted">' + TL(a.total + a.discountAmount) + '</td></tr><tr><td class="muted">İndirim (%' + a.discountPercent + ')</td><td class="r muted">−' + TL(a.discountAmount) + '</td></tr>' : '';
   const lines = (a.lines || []).length ? '<table class="legend-table"><tbody>' + a.lines.map(l => '<tr><td><strong>' + esc(l.name) + '</strong>' + (l.comp ? ' <span class="pill good comp-pill">' + ic('gift', 14, 2.2) + 'İkram</span>' : '') + '<br><span class="muted">' + l.qty + ' ' + esc(l.unit) + ' × ' + TL(l.price) + '</span></td><td class="r"><strong>' + (l.comp ? '<s class="muted">' + TL(l.qty * l.price) + '</s> 0,00 ₺' : TL(l.qty * l.price)) + '</strong></td></tr>').join('') + disc + '<tr><td><strong>Toplam</strong>' + (d.vats || []).map(v => '<br><span class="muted">KDV %' + v.rate + ': ' + TL(v.vat) + '</span>').join('') + '</td><td class="r"><strong style="font-size:24px">' + TL(a.total) + '</strong></td></tr></tbody></table>' : '<p class="muted">Kalem yok.</p>';
   const canChange = a.status === 'paid' && !d.dayClosed;
+  ui.detailA = a;
   const kv = '<dl class="kv"><dt>İş günü</dt><dd>' + esc(dateLong(a.businessDate)) + '</dd><dt>Masa · garson</dt><dd>Masa ' + a.table + ' · ' + esc(a.waiterName) + '</dd><dt>Açılış</dt><dd>' + esc(stampText(a.openedAt)) + '</dd>' +
     (a.printCount ? '<dt>Baskı</dt><dd>' + a.printCount + ' kez · son ' + esc(stampText(a.printedAt)) + (a.changed ? ' · <span style="color:var(--warn)">sonra değişti</span>' : '') + '</dd>' : '<dt>Baskı</dt><dd>Basılmadı</dd>') +
     (a.closedAt ? '<dt>Kapanış</dt><dd>' + esc(stampText(a.closedAt)) + '</dd>' : '') +
-    (a.status === 'paid' ? '<dt>Ödeme şekli</dt><dd><span class="pm">' + ic(PAY_ICON[a.paymentMethod] || 'info', 18) + esc(payLabel(a.paymentMethod)) + '</span>' + (canChange ? ' <button type="button" class="linkish" data-act="change-pay" data-no="' + a.no + '" data-m="' + esc(a.paymentMethod || '') + '">Değiştir</button>' : '') + '</dd>' : '') +
+    (a.status === 'paid' ? '<dt>Ödeme şekli</dt><dd><span class="pm">' + ic(PAY_ICON[a.paymentMethod] || 'info', 18) + esc(payText(a)) + '</span>' + (canChange ? ' <button type="button" class="linkish" data-act="change-pay" data-no="' + a.no + '">Değiştir</button>' : '') + '</dd>' : '') +
+    (a.creditCustomer ? '<dt>Veresiye</dt><dd>' + esc(a.creditCustomer) + ' <button type="button" class="linkish" data-act="credit-open" data-id="' + a.creditCustomerId + '">Hesabı aç</button></dd>' : '') +
     (a.cancelReason ? '<dt>' + (a.mergedInto ? 'Not' : 'İptal sebebi') + '</dt><dd>' + esc(a.cancelReason) + '</dd>' : '') + '</dl>';
   const hist = '<h3 class="sec-title" style="font-size:20px">İşlem geçmişi</h3><ul class="hist">' + (d.history || []).map(h => '<li><time>' + hm(h.at) + '</time><span><b>' + esc(h.label) + '</b>' + (h.text ? ' · ' + esc(h.text) : '') + '</span></li>').join('') + '</ul>';
   openModal({
@@ -695,17 +719,23 @@ async function setDiscount(t, pct) {
   const b = activeFor(t);
   toast(pct ? 'No ' + a.no + ' · %' + pct + ' indirim · toplam ' + TL(b ? b.total : 0) : 'No ' + a.no + ' · indirim kaldırıldı', 'good');
 }
-function changePayFlow(no, cur) {
-  const opts = (S.paymentMethods || []).map(m => '<button type="button" class="pay-btn" data-act="change-pay-to" data-no="' + no + '" data-m="' + esc(m.id) + '"' + (m.id === cur ? ' disabled' : '') + '>' + ic(PAY_ICON[m.id] || 'cash', 34, 1.8) + '<span>' + esc(m.label) + '</span>' + (m.id === cur ? '<span class="muted small">şu anki</span>' : '') + '</button>').join('');
-  openModal({ title: 'No ' + no + ' · ödeme şeklini değiştir', body: '<p class="muted">Yanlış seçilen ödeme şeklini düzeltir. Yönetici şifresi sorulur; değişiklik işlem kaydına yazılır.</p><div class="pay-methods">' + opts + '</div>', actions: [{ label: 'Vazgeç', onClick: () => closeModal() }] });
-}
-async function changePayTo(no, method) {
-  closeModal(true);
-  const r = await act('changePayment', { no, method });
-  if (!r) return;
-  toast('No ' + no + ' ödeme şekli: ' + payLabel(method), 'good');
-  await loadDay();
-  showDetail(no);
+function changePayFlow(no) {
+  const a = ui.detailA; if (!a || a.no !== no) return;
+  payView({
+    title: 'No ' + no + ' · ödemeyi düzelt', place: 'No ' + no, total: a.total, who: 'Şu an: ' + esc(payText(a)) + (a.creditCustomer ? ' · ' + esc(a.creditCustomer) : ''),
+    warn: '<p class="muted">Yanlış girilen ödemeyi düzeltir. Yönetici şifresi sorulur; değişiklik işlem kaydına yazılır.</p>',
+    cur: a, credit: a.creditCustomerId ? { id: a.creditCustomerId, name: a.creditCustomer } : null,
+    back: () => showDetail(no),
+    submit: async payload => {
+      closeModal(true);
+      const r = await act('changePayment', Object.assign({ no }, payload));
+      if (!r) return;
+      toast('No ' + no + ' ödeme şekli: ' + (payload.method ? payLabel(payload.method) : payload.parts.length > 1 ? payload.parts.map(p => payLabel(p.method) + ' ' + TL(p.amount)).join(' + ') : payLabel(payload.parts[0].method)) + (payload.credit ? ' · ' + payload.credit.name : ''), 'good');
+      if (ui.route === 'gunsonu') await loadDay();
+      if (ui.route === 'veresiye') loadCredits();
+      showDetail(no);
+    }
+  }, 'methods');
 }
 function closeDayFlow() {
   const D = ui.day.data; if (!D || D.closed) return;
@@ -820,6 +850,123 @@ async function printDay(date) {
   openModal({ title: out.title || 'Gün sonu fişi basılamadı', body: '<div class="err-box">' + ic('alert', 34, 2.2) + '<div><strong>' + esc(out.message || 'Yazıcıya ulaşılamıyor.') + '</strong><p>' + esc(out.hint || '') + '</p></div></div>', actions: [{ label: 'Kapat', onClick: () => closeModal() }, { label: 'Tekrar Dene', kind: 'btn-primary', icon: 'printer', onClick: () => { closeModal(true); printDay(date); } }] });
 }
 
+// ---- Veresiye ----
+async function loadCredits() {
+  ui.credit.loading = true;
+  const r = await act('credits', {});
+  ui.credit.loading = false;
+  if (r) ui.credit.data = r.data;
+  if (ui.route === 'veresiye') render();
+}
+function creditListHTML() {
+  const C = ui.credit; const D = C.data; if (!D) return '';
+  const q = fold(C.q);
+  const list = D.customers.filter(c => (C.filter === 'all' || c.balance > 0) && (!q || fold(c.name).includes(q) || fold(c.phone).includes(q)));
+  if (!list.length) return '<p class="muted" style="padding:6px 18px 14px">' + (q ? 'Bu adla müşteri yok.' : C.filter === 'all' ? 'Henüz veresiye müşterisi yok. Ödeme penceresinde “Veresiye” seçilince müşteri burada görünür.' : 'Borcu olan müşteri yok.') + '</p>';
+  return '<div class="tablebox scrollbox"><table class="data"><thead><tr><th>Müşteri</th><th>Son hareket</th><th class="r">Toplam veresiye</th><th class="r">Ödenen</th><th class="r">Kalan borç</th><th></th></tr></thead><tbody>' +
+    list.map(c => '<tr class="click" data-act="credit-open" data-id="' + c.id + '" tabindex="0"><td><strong>' + esc(c.name) + '</strong>' + (c.phone ? '<br><span class="muted small">' + esc(c.phone) + '</span>' : '') + '</td><td>' + (c.lastAt ? esc(stampText(c.lastAt)) : '') + '</td><td class="r">' + TL(c.given) + '<br><span class="muted small">' + c.count + ' adisyon</span></td><td class="r">' + TL(c.collected) + '</td><td class="r"><strong' + (c.balance > 0 ? ' class="debt"' : '') + '>' + TL(c.balance) + '</strong></td><td class="r">' +
+      (c.balance > 0 ? '<button type="button" class="btn btn-md" data-act="credit-collect" data-id="' + c.id + '">' + ic('cash', 20) + 'Tahsil et</button>' : '<span class="pill good">' + ic('check', 15, 2.6) + 'Borcu yok</span>') + '</td></tr>').join('') + '</tbody></table></div>';
+}
+function scCredit() {
+  const C = ui.credit; const D = C.data;
+  const head = '<div class="page-head"><div class="ttl"><h1>Veresiye</h1><p class="muted">Borçlar adisyonun gününde ciroya yazılır; tahsilat alındığı günün kasasına girer.</p></div></div>';
+  if (!D) return head + '<div class="card pad"><p class="muted">' + (C.loading ? 'Yükleniyor…' : 'Veresiye listesi okunamadı.') + '</p></div>';
+  const all = D.customers.length;
+  const kpis = '<div class="kpis">' + kpi('Toplam alacak', TL(D.balance), D.debtors + ' müşteride') + kpi('Kayıtlı müşteri', nf0.format(all)) + '</div>';
+  const chips = [['debt', 'Borcu olanlar', D.debtors], ['all', 'Tümü', all]].map(([k, l, n]) => '<button type="button" class="chip" data-act="credit-filter" data-f="' + k + '" aria-pressed="' + (C.filter === k) + '">' + l + ' (' + n + ')</button>').join('');
+  return head + kpis + '<section class="card stack" style="padding:16px 0 4px;gap:12px"><div class="card-head" style="padding:0 18px;flex-wrap:wrap;gap:10px"><div class="chips">' + chips + '</div><div class="search-box">' + ic('search', 20) + '<label class="sr" for="credit-q">Müşteri ara</label><input class="input" id="credit-q" placeholder="Ad ya da telefon" autocomplete="off" value="' + esc(C.q) + '"></div></div><div id="credit-list">' + creditListHTML() + '</div></section>';
+}
+async function creditAccountFlow(id) {
+  const r = await act('creditAccount', { id });
+  if (!r) return;
+  showCreditAccount(r.data);
+}
+function showCreditAccount(d) {
+  const c = d.customer;
+  const rows = d.items.map(it => it.kind === 'veresiye'
+    ? '<tr><td>' + esc(stampText(it.at)) + '</td><td>' + ic('notebook', 18) + ' Veresiye · <button type="button" class="linkish inline" data-act="detail" data-no="' + it.no + '">No ' + it.no + '</button>' + (it.total !== it.amount ? '<br><span class="muted small">hesap ' + TL(it.total) + ', kalanı başka şekilde ödendi</span>' : '') + '</td><td class="r">+' + TL(it.amount) + '</td><td class="r">' + TL(it.balance) + '</td><td></td></tr>'
+    : '<tr' + (it.cancelled ? ' class="muted-row"' : '') + '><td>' + esc(stampText(it.at)) + '</td><td>' + ic(PAY_ICON[it.method] || 'cash', 18) + ' Tahsilat · ' + esc(it.label) + (it.note ? ' · ' + esc(it.note) : '') + (it.cancelled ? '<br><span class="pill bad">' + ic('x', 14, 2.6) + 'İptal: ' + esc(it.reason) + '</span>' : '') + '</td><td class="r">' + (it.cancelled ? '<s>−' + TL(it.amount) + '</s>' : '−' + TL(it.amount)) + '</td><td class="r">' + TL(it.balance) + '</td><td class="r">' + (!it.cancelled && !it.dayClosed ? '<button type="button" class="linkish" data-act="collection-cancel" data-id="' + it.id + '">İptal</button>' : '') + '</td></tr>').join('');
+  openModal({
+    title: c.name, wide: true,
+    body: '<div class="pay-head"><span class="who">' + (c.phone ? esc(c.phone) + ' · ' : '') + c.count + ' veresiye adisyon' + (c.note ? ' · ' + esc(c.note) : '') + '</span><span><span class="muted">Kalan borç </span><strong class="pay-total' + (c.balance > 0 ? ' debt' : '') + '">' + TL(c.balance) + '</strong></span></div>' +
+      '<dl class="kv"><dt>Toplam veresiye</dt><dd>' + TL(c.given) + '</dd><dt>Tahsil edilen</dt><dd>' + TL(c.collected) + '</dd></dl>' +
+      (rows ? '<div class="tablebox"><table class="data"><thead><tr><th>Tarih</th><th>Hareket</th><th class="r">Tutar</th><th class="r">Borç</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<p class="muted">Hareket yok.</p>'),
+    actions: [{ label: 'Bilgileri düzenle', icon: 'user', onClick: () => creditEditFlow(d) }]
+      .concat(c.balance > 0 ? [{ label: 'Tahsil et', kind: 'btn-primary', icon: 'cash', onClick: () => collectFlow(c.id, d) }] : [])
+      .concat([{ label: 'Kapat', kind: c.balance > 0 ? '' : 'btn-primary', onClick: () => closeModal() }])
+  });
+  modal.creditD = d;
+}
+async function collectFlow(id, d) {
+  if (!d) { const r = await act('creditAccount', { id }); if (!r) return; d = r.data; }
+  const c = d.customer;
+  if (!(c.balance > 0)) { toast(c.name + ' adlı müşterinin borcu yok.'); return; }
+  const methods = (S.collectMethods || []).map((m, i) => '<button type="button" class="pay-btn" data-act="collect-method" data-m="' + esc(m.id) + '"><span class="kbd" aria-hidden="true">' + (i + 1) + '</span>' + ic(PAY_ICON[m.id] || 'cash', 36, 1.8) + '<span>' + esc(m.label) + '</span></button>').join('');
+  openModal({
+    title: 'Tahsilat · ' + c.name, kind: 'collect',
+    body: '<div class="pay-head"><span class="who">Kalan borç</span><strong class="pay-total debt">' + TL(c.balance) + '</strong></div>' +
+      '<div class="fields"><div class="field"><label for="col-amount">Alınan tutar</label><div class="row" style="flex-wrap:nowrap"><input class="input money" id="col-amount" inputmode="decimal" autocomplete="off" value="' + priceText(c.balance) + '" data-autofocus><button type="button" class="btn btn-md" data-act="collect-full">Tamamı</button></div><p class="hint">Borcun bir kısmı da alınabilir; kalanı borçta kalır.</p></div>' +
+      '<div class="field"><label for="col-note">Not <span class="muted small">(isteğe bağlı)</span></label><input class="input" id="col-note" maxlength="200" autocomplete="off"></div></div>' +
+      '<fieldset class="reasons"><legend class="lbl-b">Nasıl ödedi?</legend><div class="pay-methods">' + methods + '</div></fieldset>' +
+      '<p class="hint">Tahsilat bugünün kasasına “veresiye tahsilatı” olarak girer; ciroya ikinci kez yazılmaz.</p>',
+    actions: [{ label: 'Geri', onClick: () => showCreditAccount(d) }]
+  });
+  modal.creditD = d;
+  const i = document.getElementById('col-amount'); if (i) i.select();
+}
+async function doCollect(method) {
+  const d = modal && modal.creditD; if (!d) return;
+  const amount = parsePrice(val('col-amount'));
+  if (!(amount > 0)) { toast('Alınan tutarı yazın.', 'bad'); document.getElementById('col-amount').focus(); return; }
+  if (amount > d.customer.balance) { toast('Tutar borçtan fazla: borç ' + TL(d.customer.balance) + '.', 'bad'); return; }
+  const note = val('col-note').trim();
+  closeModal(true);
+  const r = await act('collectCredit', { id: d.customer.id, amount, method, note });
+  if (!r) return;
+  const n = r.data.customer;
+  toast(n.name + ' · ' + TL(amount) + ' ' + payLabel(method) + ' tahsil edildi' + (n.balance > 0 ? ' · kalan ' + TL(n.balance) : ' · borç kapandı') + '.', 'good');
+  if (ui.route === 'veresiye') loadCredits();
+  if (ui.route === 'gunsonu') loadDay();
+  showCreditAccount(r.data);
+}
+function cancelCollectionFlow(pid) {
+  const d = modal && modal.creditD; if (!d) return;
+  const it = d.items.find(x => x.kind === 'tahsilat' && x.id === pid); if (!it) return;
+  openModal({
+    title: 'Tahsilat iptal edilsin mi?',
+    body: '<p>' + esc(d.customer.name) + ' · ' + esc(stampText(it.at)) + ' · ' + TL(it.amount) + ' ' + esc(it.label) + '. İptal edilince tutar yeniden borca eklenir ve o günün kasasından düşer. Yönetici şifresi sorulur.</p>' +
+      '<div class="fields"><div class="field"><label for="colc-reason">Sebep</label><input class="input" id="colc-reason" maxlength="200" placeholder="Örnek: Tutar yanlış girildi" data-autofocus></div></div>',
+    actions: [{ label: 'Vazgeç', onClick: () => showCreditAccount(d) }, { label: 'Tahsilatı iptal et', kind: 'btn-danger-quiet', icon: 'x', onClick: async () => {
+      const reason = val('colc-reason').trim();
+      if (!reason) { toast('Sebep yazın.', 'bad'); document.getElementById('colc-reason').focus(); return; }
+      closeModal(true);
+      const r = await act('cancelCollection', { id: pid, reason });
+      if (!r) return;
+      toast('Tahsilat iptal edildi; borç ' + TL(r.data.customer.balance) + '.', 'good');
+      if (ui.route === 'veresiye') loadCredits();
+      if (ui.route === 'gunsonu') loadDay();
+      showCreditAccount(r.data);
+    } }]
+  });
+}
+function creditEditFlow(d) {
+  d = d || (modal && modal.creditD); if (!d) return;
+  const c = d.customer;
+  openModal({
+    title: c.name + ' · bilgiler',
+    body: '<div class="fields"><div class="field"><label for="ce-name">Ad</label><input class="input" id="ce-name" maxlength="60" value="' + esc(c.name) + '" data-autofocus></div>' +
+      '<div class="field"><label for="ce-phone">Telefon</label><input class="input" id="ce-phone" maxlength="30" inputmode="tel" value="' + esc(c.phone) + '"></div>' +
+      '<div class="field"><label for="ce-note">Not</label><input class="input" id="ce-note" maxlength="200" value="' + esc(c.note) + '" placeholder="Örnek: Ay sonunda öder"></div></div>',
+    actions: [{ label: 'Geri', onClick: () => showCreditAccount(d) }, { label: 'Kaydet', kind: 'btn-primary', icon: 'save', onClick: async () => {
+      const r = await act('saveCreditCustomer', { id: c.id, name: val('ce-name'), phone: val('ce-phone'), note: val('ce-note') });
+      if (!r) return;
+      toast('Müşteri bilgileri kaydedildi.', 'good');
+      if (ui.route === 'veresiye') loadCredits();
+      showCreditAccount(r.data);
+    } }]
+  });
+}
+
 // ---- İşlem kaydı ----
 async function loadAudit(more) {
   const A = ui.audit;
@@ -924,7 +1071,7 @@ function scStats() {
     const multiMonth = D.days.length && D.days[0].date.slice(0, 7) !== D.days[D.days.length - 1].date.slice(0, 7);
     trend = card2('Günlük ciro', 'Ödenen adisyonlar, KDV dahil' + (D.partial ? ' · son gün sürüyor' : ''), has ? chartBox('st-trend', { kind: 'line', fmt: 'tl', partialLast: D.partial, items: D.days.map(d => ({ label: multiMonth ? dmShort(d.date) : String(parseDay(d.date).getDate()), long: dmShort(d.date), v: d.revenue, tip: [dateLong(d.date), [TL(d.revenue), 'ciro'], [nf0.format(d.count), 'adisyon'], [d.count ? TL(Math.round(d.revenue / d.count)) : '—', 'ortalama']] })) }, 300) : empty('Bu dönemde satış yok.'));
   }
-  const pay = card2('Ödeme şekilleri', 'Ödenen adisyonların tutarı', payShareHTML(D.byPayment || [], D.revenue.value));
+  const pay = card2('Ödeme şekilleri', 'Ödenen adisyonların tutarı', payShareHTML(D.byPayment || [], D.revenue.value) + (D.collected ? '<p class="muted small">Ayrıca ' + TL(D.collected) + ' veresiye tahsilatı alındı (ciroya dahil değil).</p>' : ''));
   const top = D.products.slice(0, 12);
   const prods = card2('Ürünler', 'Satış adedi' + (D.products.length > 12 ? ' · ilk 12' : ''), D.products.length ? chartBox('st-prod', { kind: 'hbars', items: top.map(p => ({ label: p.name, v: p.qty, valueText: nf0.format(p.qty) + ' ' + p.unit, tip: [p.name, [nf0.format(p.qty) + ' ' + p.unit, 'adet'], [TL(p.total), 'tutar'], ['%' + nf1.format(D.revenue.value ? p.total * 100 / D.revenue.value : 0), 'ciro payı']] })) }, Math.max(120, top.length * 40 + 16)) : empty('Bu dönemde satış yok.'));
   let one = '';
@@ -972,7 +1119,7 @@ function dayTable(D) {
   const T = ui.stats; const sort = T.sort;
   // Uzun aralıklarda (ör. birkaç yıl) tablo aylara göre toplanır; binlerce satır ekranı yavaşlatır.
   const byMonth = D.days.length > 400;
-  const sums = ['revenue', 'count', 'cash', 'card', 'transfer', 'unknown', 'cancelled', 'discount'];
+  const sums = ['revenue', 'count', 'cash', 'card', 'transfer', 'credit', 'collected', 'unknown', 'cancelled', 'discount'];
   let rows;
   if (byMonth) {
     const mi = {}; rows = [];
@@ -987,6 +1134,7 @@ function dayTable(D) {
     rows = D.days.map((d, i) => Object.assign({ q: D.matrix[i] || [] }, d));
   }
   const cols = [['date', byMonth ? 'Ay' : 'Tarih', 0], ['revenue', 'Ciro', 1], ['count', 'Adisyon', 1], ['avg', 'Ortalama', 1], ['cash', 'Nakit', 1], ['card', 'Kredi Kartı', 1], ['transfer', 'Havale', 1]];
+  if (D.days.some(d => d.credit || d.collected)) cols.push(['credit', 'Veresiye', 1], ['collected', 'Veresiye tahsilatı', 1]);
   if (D.days.some(d => d.unknown)) cols.push(['unknown', 'Belirtilmemiş', 1]);
   cols.push(['cancelled', 'İptal', 1]);
   if (D.days.some(d => d.discount)) cols.push(['discount', 'İndirim', 1]);
@@ -996,7 +1144,7 @@ function dayTable(D) {
   const hideEmpty = byMonth || T.mode === 'year';
   const idx = rows.map((r, i) => i).filter(i => !hideEmpty || rows[i].count || rows[i].cancelled);
   idx.sort((x, y) => { const a = valOf(rows[x], sort.key), b = valOf(rows[y], sort.key); return (a < b ? -1 : a > b ? 1 : 0) * sort.dir || (x - y); });
-  const money = new Set(['revenue', 'avg', 'cash', 'card', 'transfer', 'unknown', 'discount']);
+  const money = new Set(['revenue', 'avg', 'cash', 'card', 'transfer', 'credit', 'collected', 'unknown', 'discount']);
   const cell = (k, v) => k === 'date' ? '' : money.has(k) ? TL(Math.round(v)) : nf0.format(v);
   const th = cols.map(([k, l, r]) => '<th' + (r ? ' class="r"' : '') + ' aria-sort="' + (sort.key === k ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none') + '"><button type="button" class="th-sort" data-act="st-sort" data-k="' + k + '">' + esc(l) + (sort.key === k ? ic(sort.dir > 0 ? 'up' : 'down', 16, 2.6) : '') + '</button></th>').join('');
   const first = r => byMonth ? (() => { const t = parseDay(r.date + '-01'); return esc(AY[t.getMonth()] + ' ' + t.getFullYear()); })()
@@ -1430,8 +1578,8 @@ function doPost(e) {
     if (veri.type !== 'gun_sonu') return yanit({ ok: false, error: 'Bilinmeyen veri.' });
     const tablo = SpreadsheetApp.getActiveSpreadsheet();
     const tarih = veri.gun.tarih;
-    yaz(tablo, 'Gün Sonu', ['Tarih', 'Kapanış', 'Ciro', 'KDV', 'Adisyon', 'Ortalama', 'İptal', 'İptal tutarı', 'Nakit', 'Kredi Kartı', 'Havale', 'Öne çıkan ürün', 'Adet', 'Garsonlar', 'Adisyon no', 'İndirimli adisyon', 'İndirim tutarı', 'İkram adet', 'İkram değeri'], [veri.gun.satir], tarih);
-    yaz(tablo, 'Adisyonlar', ['Tarih', 'No', 'Masa', 'Garson', 'Açılış', 'Kapanış', 'Durum', 'Ödeme şekli', 'Tutar', 'Baskı', 'Not', 'İndirim %', 'İndirim'], veri.adisyonlar, tarih);
+    yaz(tablo, 'Gün Sonu', ['Tarih', 'Kapanış', 'Ciro', 'KDV', 'Adisyon', 'Ortalama', 'İptal', 'İptal tutarı', 'Nakit', 'Kredi Kartı', 'Havale', 'Öne çıkan ürün', 'Adet', 'Garsonlar', 'Adisyon no', 'İndirimli adisyon', 'İndirim tutarı', 'İkram adet', 'İkram değeri', 'Veresiye', 'Veresiye tahsilatı', 'Parçalı ödeme'], [veri.gun.satir], tarih);
+    yaz(tablo, 'Adisyonlar', ['Tarih', 'No', 'Masa', 'Garson', 'Açılış', 'Kapanış', 'Durum', 'Ödeme şekli', 'Tutar', 'Baskı', 'Not', 'İndirim %', 'İndirim', 'Veresiye müşterisi'], veri.adisyonlar, tarih);
     yaz(tablo, 'Ürünler', ['Tarih', 'Ürün', 'Adet', 'Birim', 'Tutar', 'İkram adet'], veri.urunler, tarih);
     return yanit({ ok: true });
   } catch (hata) {
@@ -1450,6 +1598,9 @@ function yaz(tablo, ad, basliklar, satirlar, tarih) {
     sayfa.setFrozenRows(1);
     sayfa.getRange(1, 1, 1, basliklar.length).setFontWeight('bold');
     sayfa.getRange('A:A').setNumberFormat('@');
+  } else if (sayfa.getLastColumn() < basliklar.length) {
+    // Yeni sürümle gelen sütunların başlıkları
+    sayfa.getRange(1, 1, 1, basliklar.length).setValues([basliklar]).setFontWeight('bold');
   }
   const son = sayfa.getLastRow();
   if (son > 1) {
@@ -1715,28 +1866,116 @@ async function payFlow(t) {
   if (a.printFailed) warn = '<div class="note bad">' + ic('alert') + '<p><strong>Son baskı yapılamadı.</strong> Müşteriye fiş verilecekse önce basın.</p><button type="button" class="btn btn-md" data-act="pay-print" data-t="' + t + '">' + ic('printer', 20) + 'Adisyonu Bas</button></div>';
   else if (a.status === 'open') warn = '<div class="note warn">' + ic('alert') + '<p><strong>Adisyon basılmadı.</strong> Müşteriye fiş verilecekse önce basın.</p><button type="button" class="btn btn-md" data-act="pay-print" data-t="' + t + '">' + ic('printer', 20) + 'Adisyonu Bas</button></div>';
   else if (a.changed) warn = '<div class="note warn">' + ic('alert') + '<p><strong>Adisyon basıldıktan sonra değişti.</strong> Güncel halini vermek için tekrar basın.</p><button type="button" class="btn btn-md" data-act="pay-print" data-t="' + t + '">' + ic('printer', 20) + 'Tekrar Bas</button></div>';
-  const methods = (S.paymentMethods || []).map((m, i) => '<button type="button" class="pay-btn" data-act="pay-method" data-t="' + t + '" data-no="' + a.no + '" data-total="' + a.total + '" data-m="' + esc(m.id) + '"><span class="kbd" aria-hidden="true">' + (i + 1) + '</span>' + ic(PAY_ICON[m.id] || 'cash', 40, 1.8) + '<span>' + esc(m.label) + '</span></button>').join('');
-  openModal({
-    title: 'Hesap Ödendi · Masa ' + t,
-    kind: 'pay',
-    focusClose: true,
-    body: '<div class="pay-head"><span class="who">No ' + a.no + ' · ' + esc(a.waiterName) + '</span><strong class="pay-total">' + TL(a.total) + '</strong></div>' + warn +
-      '<fieldset class="reasons"><legend class="lbl-b">Müşteri nasıl ödedi?</legend><div class="pay-methods">' + methods + '</div></fieldset>' +
-      '<p class="hint">Seçtiğiniz ödeme şekli adisyona kaydedilir ve masa kapanır. Ödeme şekli fişe basılmaz. Klavyeden 1, 2 ya da 3’e de basabilirsiniz.</p>',
-    actions: [{ label: 'Vazgeç', onClick: () => closeModal() }]
-  });
-  modal.payTable = t;
+  payView({
+    title: 'Hesap Ödendi · Masa ' + t, place: 'Masa ' + t, total: a.total, who: 'No ' + a.no + ' · ' + esc(a.waiterName), warn,
+    valid: () => { const b = activeFor(t); return !!(b && b.no === a.no && b.total === a.total && !ui.busy); },
+    submit: payload => doPay(t, a.no, a.total, payload)
+  }, 'methods');
 }
-async function doPay(t, no, method, total) {
+// Ödeme penceresi (hesap kapatma ve ödeme düzeltme): tek şekil, veresiye, parçalı.
+// ctx: {title, total, who, warn, cur?, credit?, valid?, back?, submit(payload)}
+function payView(ctx, view) {
+  if (ctx.valid && !ctx.valid()) { closeModal(true); render(); return; }
+  const head = '<div class="pay-head"><span class="who">' + ctx.who + '</span><strong class="pay-total">' + TL(ctx.total) + '</strong></div>';
+  const cur = ctx.cur ? (ctx.cur.payments || []) : [];
+  const curOne = cur.length === 1 ? cur[0].method : '';
+  if (view === 'methods') {
+    const methods = (S.paymentMethods || []).map((m, i) => '<button type="button" class="pay-btn" data-act="pay-method" data-m="' + esc(m.id) + '"' + (m.id === curOne && m.id !== 'veresiye' ? ' disabled' : '') + '><span class="kbd" aria-hidden="true">' + (i + 1) + '</span>' + ic(PAY_ICON[m.id] || 'cash', 40, 1.8) + '<span>' + esc(m.label) + '</span>' + (m.id === curOne ? '<span class="muted small">şu anki</span>' : '') + '</button>').join('') +
+      '<button type="button" class="pay-btn pay-split" data-act="pay-split"><span class="kbd" aria-hidden="true">' + ((S.paymentMethods || []).length + 1) + '</span>' + ic('split', 30, 1.8) + '<span>Parçalı ödeme</span><span class="muted small">' + (cur.length > 1 ? 'şu anki · ' : '') + 'bir kısmı nakit, bir kısmı kart…</span></button>';
+    openModal({
+      title: ctx.title, kind: 'pay', focusClose: true,
+      body: head + (ctx.warn || '') + '<fieldset class="reasons"><legend class="lbl-b">Müşteri nasıl ödedi?</legend><div class="pay-methods pay-4">' + methods + '</div></fieldset>' +
+        (ctx.cur ? '' : '<p class="hint">Seçtiğiniz ödeme şekli adisyona kaydedilir ve masa kapanır. Ödeme şekli fişe basılmaz. Klavyeden 1–5 tuşlarına da basabilirsiniz. Veresiyede müşterinin adı sorulur.</p>'),
+      actions: [{ label: ctx.back ? 'Geri' : 'Vazgeç', onClick: () => ctx.back ? ctx.back() : closeModal() }]
+    });
+  } else if (view === 'credit') {
+    openModal({
+      title: 'Veresiye · ' + (ctx.place || ctx.title), kind: 'pay-credit',
+      body: head + creditFieldsHTML(ctx) + '<p class="hint">Hesabın tamamı müşterinin borcuna yazılır; ciroya bugün girer, kasaya girmez. Ödeyince Veresiye ekranından tahsil edilir.</p>',
+      actions: [{ label: 'Geri', onClick: () => payView(ctx, 'methods') }, { label: 'Veresiyeye yaz', kind: 'btn-primary', icon: 'notebook', onClick: () => {
+        const credit = readCredit(); if (!credit) return;
+        once('pay', () => ctx.submit({ parts: [{ method: 'veresiye', amount: ctx.total }], credit }));
+      } }]
+    });
+    const n = document.getElementById('cr-name'); if (n) { n.focus(); creditSuggest(); }
+  } else {
+    const rows = (S.paymentMethods || []).map(m => {
+      const v = cur.length > 1 ? (cur.find(p => p.method === m.id) || {}).amount : 0;
+      return '<div class="split-row"><label for="sp-' + m.id + '">' + ic(PAY_ICON[m.id] || 'cash', 26, 1.8) + esc(m.label) + '</label><input class="input money" id="sp-' + m.id + '" data-split="' + m.id + '" inputmode="decimal" autocomplete="off" placeholder="0,00" value="' + (v ? priceText(v) : '') + '"><button type="button" class="btn btn-md" data-act="split-rest" data-m="' + m.id + '">Kalanı</button></div>';
+    }).join('');
+    openModal({
+      title: 'Parçalı ödeme · ' + (ctx.place || ctx.title), kind: 'pay-split', wide: true,
+      body: head + '<div class="split-rows">' + rows + '</div><div class="split-sum" id="split-sum" role="status"></div>' +
+        '<div id="split-credit" hidden>' + creditFieldsHTML(ctx) + '</div>' +
+        '<p class="hint">Her ödeme şekline alınan tutarı yazın; “Kalanı” düğmesi kalan tutarı o satıra yazar. Toplam hesaba eşit olunca kapatılır.</p>',
+      actions: [{ label: 'Geri', onClick: () => payView(ctx, 'methods') }, { label: ctx.cur ? 'Kaydet' : 'Hesabı kapat', kind: 'btn-primary', icon: 'check', id: 'split-ok', disabled: true, onClick: () => {
+        const sp = splitRead(); if (!sp.ok) { toast(sp.msg, 'bad'); return; }
+        let credit = null;
+        if (sp.parts.some(p => p.method === 'veresiye')) { credit = readCredit(); if (!credit) return; }
+        once('pay', () => ctx.submit(credit ? { parts: sp.parts, credit } : { parts: sp.parts }));
+      } }]
+    });
+    modal.payCtx = ctx;
+    splitUpdate();
+    const f = document.getElementById('sp-nakit'); if (f) f.focus();
+  }
+  modal.payCtx = ctx;
+}
+function creditFieldsHTML(ctx) {
+  const c = ctx.credit;
+  return '<div class="fields credit-fields"><div class="field"><label for="cr-name">Müşterinin adı</label><input class="input" id="cr-name" maxlength="60" autocomplete="off" placeholder="Ad soyad ya da firma" value="' + esc(c ? c.name : '') + '"><div class="cr-sugg" id="cr-sugg"></div></div>' +
+    '<div class="field" id="cr-phone-f"><label for="cr-phone">Telefon <span class="muted small">(isteğe bağlı, yeni müşteri için)</span></label><input class="input" id="cr-phone" maxlength="30" inputmode="tel" autocomplete="off"></div></div>';
+}
+// Yazılan ada uyan veresiye müşterileri (borcu olanlar önce).
+function creditSuggest() {
+  const el = document.getElementById('cr-name'), box = document.getElementById('cr-sugg'); if (!el || !box) return;
+  const q = fold(el.value); const list = S.creditCustomers || [];
+  const exact = list.find(c => fold(c.name) === q);
+  const hits = q ? list.filter(c => fold(c.name).includes(q) && fold(c.name) !== q) : list.filter(c => c.balance > 0);
+  box.innerHTML = (exact ? '<p class="cr-match">' + ic('check', 18, 2.4) + ' Kayıtlı müşteri' + (exact.balance > 0 ? ' · borcu ' + TL(exact.balance) : '') + '</p>' : q ? '<p class="cr-match new">' + ic('plus', 18, 2.4) + ' Yeni müşteri açılacak</p>' : '') +
+    (hits.length ? '<div class="chips">' + hits.slice(0, 6).map(c => '<button type="button" class="chip" data-act="cr-pick" data-name="' + esc(c.name) + '">' + esc(c.name) + (c.balance > 0 ? ' · ' + TL(c.balance) : '') + '</button>').join('') + '</div>' : '');
+  const pf = document.getElementById('cr-phone-f'); if (pf) pf.hidden = !!exact;
+}
+function readCredit() {
+  const el = document.getElementById('cr-name');
+  const name = el ? el.value.trim() : '';
+  if (!name) { toast('Veresiye için müşterinin adını yazın.', 'bad'); if (el) el.focus(); return null; }
+  const exact = (S.creditCustomers || []).find(c => fold(c.name) === fold(name));
+  return exact ? { id: exact.id, name: exact.name } : { name, phone: val('cr-phone').trim() };
+}
+function splitRead() {
+  const parts = []; let sum = 0; let bad = '';
+  (S.paymentMethods || []).forEach(m => {
+    const raw = val('sp-' + m.id).trim(); if (!raw) return;
+    const k = parsePrice(raw);
+    if (!(k >= 0)) { bad = m.label + ' tutarı anlaşılamadı.'; return; }
+    if (k > 0) { parts.push({ method: m.id, amount: k }); sum += k; }
+  });
+  const total = modal && modal.payCtx ? modal.payCtx.total : 0;
+  const rest = total - sum;
+  if (bad) return { ok: false, msg: bad, sum, rest, parts };
+  if (rest !== 0) return { ok: false, msg: rest > 0 ? TL(rest) + ' eksik.' : TL(-rest) + ' fazla.', sum, rest, parts };
+  if (parts.length < 2) return { ok: false, msg: 'Parçalı ödemede en az iki ödeme şekline tutar yazın.', sum, rest, parts };
+  return { ok: true, sum, rest, parts };
+}
+function splitUpdate() {
+  const sp = splitRead(); const box = document.getElementById('split-sum'); if (!box) return;
+  box.className = 'split-sum' + (sp.ok ? ' good' : sp.rest < 0 ? ' bad' : '');
+  box.innerHTML = '<span>Girilen <strong>' + TL(sp.sum) + '</strong></span><span>' + (sp.rest > 0 ? 'Kalan <strong>' + TL(sp.rest) + '</strong>' : sp.rest < 0 ? 'Fazla <strong>' + TL(-sp.rest) + '</strong>' : (sp.ok ? ic('check', 20, 2.6) + ' <strong>Tutar tamam</strong>' : '<strong>' + esc(sp.msg) + '</strong>')) + '</span>';
+  const ok = document.getElementById('split-ok'); if (ok) ok.disabled = !sp.ok;
+  const cr = document.getElementById('split-credit');
+  if (cr) { const need = sp.parts.some(p => p.method === 'veresiye'); if (cr.hidden === need) { cr.hidden = !need; if (need) creditSuggest(); } }
+}
+async function doPay(t, no, total, payload) {
   const a = activeFor(t);
   if (!a || a.no !== no || ui.busy) { closeModal(true); render(); return; }
   closeModal(true);
   ui.busy = 'pay:' + a.no; render();
-  const r = await act('pay', { no: a.no, method, total });
+  const r = await act('pay', Object.assign({ no: a.no, total }, payload));
   ui.busy = null;
   if (!r) { render(); return; }
   const out = r.data;
-  toast('Masa ' + t + ' kapatıldı · ' + TL(out.total) + ' · ' + out.methodLabel, 'good');
+  toast('Masa ' + t + ' kapatıldı · ' + TL(out.total) + ' · ' + out.methodLabel + (out.customer ? ' · ' + out.customer : ''), 'good');
   // Garson bu arada başka bir masaya geçtiyse onu yerinden etme.
   if (ui.route === 'siparis' && ui.table === t) { ui.route = 'masalar'; ui.table = null; }
   render();
@@ -1861,7 +2100,22 @@ const ACT = {
   'undo': async el => { const a = activeFor(Number(el.dataset.t)); if (!a) return; if (await act('undo', { no: a.no })) { render(); toast('Son işlem geri alındı.'); } },
   'print': el => doPrint(Number(el.dataset.t)),
   'pay': el => payFlow(Number(el.dataset.t)),
-  'pay-method': el => once('pay', () => doPay(Number(el.dataset.t), Number(el.dataset.no), el.dataset.m, Number(el.dataset.total))),
+  'pay-method': el => { const c = modal && modal.payCtx; if (!c) return; const m = el.dataset.m; if (m === 'veresiye') payView(c, 'credit'); else once('pay', () => c.submit({ method: m })); },
+  'pay-split': () => { const c = modal && modal.payCtx; if (c) payView(c, 'split'); },
+  'split-rest': el => {
+    const sp = splitRead(); const inp = document.getElementById('sp-' + el.dataset.m); if (!inp) return;
+    const v = (parsePrice(inp.value) || 0) + sp.rest;
+    inp.value = v > 0 ? priceText(v) : '';
+    splitUpdate(); inp.focus();
+  },
+  'cr-pick': el => { const n = document.getElementById('cr-name'); if (n) { n.value = el.dataset.name; creditSuggest(); n.focus(); } },
+  'credit-open': el => { closeModal(true); creditAccountFlow(Number(el.dataset.id)); },
+  'credit-filter': el => { ui.credit.filter = el.dataset.f; render(); },
+  'credit-collect': el => collectFlow(Number(el.dataset.id)),
+  'collect-full': () => { const d = modal && modal.creditD; const i = document.getElementById('col-amount'); if (d && i) { i.value = priceText(d.customer.balance); i.focus(); } },
+  'collect-method': el => once('collect', () => doCollect(el.dataset.m)),
+  'collection-cancel': el => cancelCollectionFlow(Number(el.dataset.id)),
+  'credit-edit': () => creditEditFlow(),
   'pay-print': el => { const t = Number(el.dataset.t); closeModal(true); doPrint(t, () => { const a = activeFor(t); if (a && ui.route === 'siparis' && ui.table === t) payFlow(t); }); },
   'move-table': el => moveFlow(Number(el.dataset.t)),
   'move-to': el => moveTo(Number(el.dataset.t), Number(el.dataset.to)),
@@ -1877,8 +2131,7 @@ const ACT = {
   'day-print': () => once('day-print', () => printDay(ui.day.date)),
   'day-preview': async () => { const r = await act('dayPreview', { date: ui.day.date }); if (r) showPreview(r.data.image, 'Gün sonu fişi önizlemesi', 'İşletme içi rapordur; müşteriye verilmez.'); },
   'detail': el => showDetail(Number(el.dataset.no)),
-  'change-pay': el => changePayFlow(Number(el.dataset.no), el.dataset.m),
-  'change-pay-to': el => once('change-pay', () => changePayTo(Number(el.dataset.no), el.dataset.m)),
+  'change-pay': el => changePayFlow(Number(el.dataset.no)),
   'audit-kind': el => { ui.audit.kind = el.dataset.k; if (document.getElementById('au-from')) { ui.audit.from = val('au-from'); ui.audit.to = val('au-to'); ui.audit.no = val('au-no').trim(); } loadAudit(); },
   'audit-load': () => { ui.audit.from = val('au-from'); ui.audit.to = val('au-to'); ui.audit.no = val('au-no').trim(); loadAudit(); },
   'audit-more': () => loadAudit(true),
@@ -2011,6 +2264,9 @@ document.addEventListener('input', e => {
     else ui.setup[k] = el.value;
   }
   if (el.dataset && el.dataset.biz && ui.route === 'ayarlar') scheduleSample();
+  if (el.id === 'cr-name') creditSuggest();
+  if (el.dataset && el.dataset.split) splitUpdate();
+  if (el.id === 'credit-q') { ui.credit.q = el.value; const box = document.getElementById('credit-list'); if (box) box.innerHTML = creditListHTML(); }
   if (el.id === 'reason-other') { const o = document.querySelector('input[name="reason"][value="__other"]'); if (o) o.checked = true; }
   touch();
 });
@@ -2059,7 +2315,7 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'Escape') { e.preventDefault(); closeModal(); return; }
-  if (modal.kind === 'pay' && /^[1-9]$/.test(e.key) && !(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))) {
+  if ((modal.kind === 'pay' || modal.kind === 'collect') && /^[1-9]$/.test(e.key) && !(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))) {
     const b = document.querySelectorAll('#modal-root .pay-btn')[Number(e.key) - 1];
     if (b && !b.disabled) { e.preventDefault(); b.click(); }
     return;

@@ -170,7 +170,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   await btn('Hesap Ödendi');
   await page.waitForSelector('.pay-methods');
   await shot('10_odeme_popup_uyari');
-  check('ödeme penceresinde üç ödeme şekli', await page.locator('.pay-btn').count() === 3);
+  check('ödeme penceresinde dört ödeme şekli ve parçalı ödeme', await page.locator('.pay-btn').count() === 5 && await page.locator('.pay-btn', { hasText: 'Veresiye' }).count() === 1);
   check('ödeme penceresi değişiklik uyarısı', (await page.locator('.modal .note.warn').textContent()).includes('değişti'));
   // Fiş ödemeden önce basılır: pencereden “Tekrar Bas”, sonra ödeme şekli.
   const beforePay = jobs;
@@ -179,7 +179,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   await sleep(300);
   check('pencereden basınca fiş gitti ve pencere geri geldi', jobs === beforePay + 1 && await page.locator('.pay-methods').count() === 1, 'iş ' + (jobs - beforePay));
   await shot('10b_odeme_popup');
-  await page.locator('.pay-btn', { hasText: 'Kredi Kartı' }).click();
+  await page.locator('.pay-btn[data-m="kart"]').click();
   const tPay = await toastText('kapatıldı');
   check('hesap kredi kartıyla kapandı', tPay.includes('Kredi Kartı'), tPay);
   await page.waitForSelector('.tiles');
@@ -566,7 +566,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   await shot('23_adisyon_detay');
   check('ayrıntıda ödeme şekli ve geçmiş', (await page.locator('.modal').textContent()).includes('Kredi Kartı') && (await page.locator('.modal .hist').textContent()).includes('Hesap ödendi'));
   await page.locator('.modal [data-act="change-pay"]').click();
-  await page.locator('.pay-btn', { hasText: 'Havale' }).click();
+  await page.locator('.pay-btn[data-m="havale"]').click();
   await page.waitForSelector('.keypad');
   await page.keyboard.type('2468');
   const tChg = await toastText('ödeme şekli');
@@ -599,7 +599,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
       await btn('Hesap Ödendi');
       await page.waitForSelector('.pay-methods');
     }
-    await page.locator('.pay-btn', { hasText: 'Nakit' }).click();
+    await page.locator('.pay-btn[data-m="nakit"]').click();
     await toastText('kapatıldı');
     await page.waitForSelector('.tiles');
   }
@@ -636,7 +636,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   check('düzeltilen adet ve indirimli toplam (255,00)', (await page.locator('.total-amount').textContent()).includes('255,00'));
   await btn('Hesap Ödendi');
   await page.waitForSelector('.pay-methods');
-  await page.locator('.pay-btn', { hasText: 'Havale' }).click();
+  await page.locator('.pay-btn[data-m="havale"]').click();
   const tRe = await toastText('kapatıldı');
   check('düzeltilen hesap yeniden ödendi', tRe.includes('255,00') && tRe.includes('Havale'), tRe);
   await page.waitForSelector('.tiles');
@@ -811,6 +811,110 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   await page.waitForSelector('.data', { timeout: 10000 });
   const log2 = await page.locator('.data').textContent();
   check('işlem kaydında gün düzeltme ve yeniden açma', log2.includes('Kaymış adisyonlar düzeltildi') && log2.includes('Gün yeniden açıldı') && log2.includes('İş günü değişti'), log2.slice(0, 200));
+
+  // ---- Parçalı ödeme ve veresiye (2.3.0) ----
+  const openWith = async (t, items) => {
+    await btn('Masalar');
+    await click(`[data-act="open-table"][data-t="${t}"]`);
+    await page.getByRole('button', { name: 'Ahmet', exact: true }).click();
+    await page.waitForSelector('.prods');
+    for (const it of items) { await prod(it).click(); await sleep(120); }
+    await sleep(300);
+  };
+  await openWith(3, ['Ayran', 'Ayran', 'Ayran']); // 3 × 55,00 = 165,00
+  await btn('Hesap Ödendi');
+  await page.waitForSelector('.pay-methods');
+  await shot('35_odeme_penceresi');
+  await page.locator('[data-act="pay-split"]').click();
+  await page.waitForSelector('#sp-nakit');
+  await page.fill('#sp-nakit', '100');
+  check('parçalıda kalan gösterilir', (await page.locator('#split-sum').textContent()).includes('65,00') && await page.locator('#split-ok').isDisabled());
+  await page.locator('[data-act="split-rest"][data-m="kart"]').click();
+  await until(() => document.querySelector('#split-sum') && document.querySelector('#split-sum').textContent.includes('tamam'));
+  check('Kalanı düğmesi tutarı tamamlar', (await page.inputValue('#sp-kart')) === '65,00' && !(await page.locator('#split-ok').isDisabled()), await page.inputValue('#sp-kart'));
+  await shot('36_parcali_odeme');
+  await page.locator('#split-ok').click();
+  const tSplit = await toastText('Masa 3 kapatıldı');
+  check('parçalı ödemeyle kapandı', tSplit.includes('Nakit 100,00') && tSplit.includes('Kredi Kartı 65,00'), tSplit);
+
+  await openWith(6, ['Ayran']); // 55,00 veresiye
+  await btn('Hesap Ödendi');
+  await page.waitForSelector('.pay-methods');
+  await page.keyboard.press('4');
+  await page.waitForSelector('#cr-name');
+  await page.getByRole('button', { name: 'Veresiyeye yaz' }).click();
+  check('veresiye adsız yazılmaz', (await toastText('adını')).includes('adını'));
+  await page.fill('#cr-name', 'Ahmet Usta');
+  await until(() => (document.querySelector('#cr-sugg') || {}).textContent?.includes('Yeni müşteri'));
+  check('yeni veresiye müşterisi bildirilir', (await page.locator('#cr-sugg').textContent()).includes('Yeni müşteri'));
+  await page.fill('#cr-phone', '0532 111 22 33');
+  await shot('37_veresiye_ad');
+  await page.getByRole('button', { name: 'Veresiyeye yaz' }).click();
+  const tCred = await toastText('Masa 6 kapatıldı');
+  check('veresiyeye yazıldı', tCred.includes('Veresiye') && tCred.includes('Ahmet Usta'), tCred);
+
+  await openWith(7, ['Ayran', 'Ayran']); // 110,00: 50 nakit + 60 veresiye
+  await btn('Hesap Ödendi');
+  await page.waitForSelector('.pay-methods');
+  await page.locator('[data-act="pay-split"]').click();
+  await page.waitForSelector('#sp-nakit');
+  await page.fill('#sp-nakit', '50');
+  await page.locator('[data-act="split-rest"][data-m="veresiye"]').click();
+  await until(() => document.querySelector('#split-credit') && !document.querySelector('#split-credit').hidden);
+  check('parçada veresiye varsa ad sorulur', await page.locator('#split-credit').isVisible());
+  await page.fill('#cr-name', 'AHMET USTA');
+  await until(() => (document.querySelector('#cr-sugg') || {}).textContent?.includes('Kayıtlı müşteri'));
+  check('kayıtlı müşteri büyük harfle de bulunur', (await page.locator('#cr-sugg').textContent()).includes('borcu 55,00'));
+  await page.locator('#split-ok').click();
+  const tSplitCred = await toastText('Masa 7 kapatıldı');
+  check('nakit + veresiye kapandı', tSplitCred.includes('Veresiye 60,00') && tSplitCred.includes('Ahmet Usta'), tSplitCred);
+
+  await page.locator('[data-act="nav"][data-to="veresiye"]').click();
+  await page.waitForSelector('#credit-list tr.click', { timeout: 10000 }).catch(() => {});
+  const credText = await page.locator('.main').textContent();
+  check('veresiye ekranında müşteri ve borç', credText.includes('Ahmet Usta') && credText.includes('115,00'), credText.slice(0, 200));
+  await shot('38_veresiye_ekrani');
+  await page.locator('[data-act="credit-collect"]').first().click();
+  await page.waitForSelector('#col-amount');
+  check('tahsilatta borcun tamamı önerilir', (await page.inputValue('#col-amount')) === '115,00');
+  await page.fill('#col-amount', '40');
+  await shot('39_tahsilat');
+  await page.locator('[data-act="collect-method"][data-m="nakit"]').click();
+  const tCol = await toastText('tahsil edildi');
+  check('kısmi tahsilat alındı', tCol.includes('40,00') && tCol.includes('kalan 75,00'), tCol);
+  await page.waitForSelector('[data-act="collection-cancel"]');
+  await shot('40_veresiye_hesap');
+  await page.locator('[data-act="collection-cancel"]').first().click();
+  await page.fill('#colc-reason', 'Tutar yanlış');
+  await page.getByRole('button', { name: 'Tahsilatı iptal et' }).click();
+  await page.waitForSelector('.keypad');
+  await page.keyboard.type('2468');
+  const tColC = await toastText('iptal edildi');
+  check('tahsilat şifreyle iptal edildi', tColC.includes('115,00'), tColC);
+  await page.locator('.modal [data-act="modal-action"]', { hasText: 'Tahsil et' }).click();
+  await page.waitForSelector('#col-amount');
+  await page.fill('#col-amount', '15');
+  await page.locator('[data-act="collect-method"][data-m="kart"]').click();
+  await toastText('kalan 100,00');
+  await page.waitForSelector('.modal [data-act="collection-cancel"]', { timeout: 10000 }).catch(() => {});
+  await page.keyboard.press('Escape');
+  await until(() => !document.querySelector('#modal-root .modal'));
+
+  await click('[data-act="nav"][data-to="gunsonu"]');
+  await page.waitForSelector('.keypad, .kpis', { timeout: 10000 }).catch(() => {});
+  if (await page.locator('.keypad').count()) await page.keyboard.type('2468');
+  await page.waitForSelector('.kpis');
+  await sleep(300);
+  const dayCred = await page.locator('.main').textContent();
+  check('gün sonunda veresiye, tahsilat ve kasa', dayCred.includes('Veresiyeye yazılan') && dayCred.includes('115,00') && dayCred.includes('Kasaya giren') && dayCred.includes('Tahsil edilen'), dayCred.slice(0, 100));
+  await page.locator('section', { hasText: 'Kasaya giren' }).last().scrollIntoViewIfNeeded();
+  await shot('41_gunsonu_veresiye');
+  await page.locator('tr.click', { hasText: 'Kredi Kartı 65,00' }).first().click();
+  await page.waitForSelector('.modal .hist');
+  await shot('42_detay_parcali');
+  const kvSplit = (await page.locator('.modal .kv').textContent()).replace(/\s+/g, ' ');
+  check('adisyon ayrıntısında parçalı ödeme', kvSplit.includes('Nakit 100,00 ₺ + Kredi Kartı 65,00 ₺'), kvSplit);
+  await page.keyboard.press('Escape');
 
   killAppsUsing(OUT + '/data');
   app2.kill('SIGTERM');

@@ -46,6 +46,9 @@ func whatsAppParams(ds *DaySummary) []string {
 			pays = append(pays, fmt.Sprintf("%s %s", p.Label, money.TL(p.Total)))
 		}
 	}
+	if ds.CollectedTotal > 0 {
+		pays = append(pays, "Veresiye tahsilatı "+money.TL(ds.CollectedTotal))
+	}
 	var ws []string
 	for _, w := range ds.ByWaiter {
 		ws = append(ws, fmt.Sprintf("%s %d adisyon %s", w.Name, w.Count, money.TL(w.Total)))
@@ -96,11 +99,11 @@ func sheetsPayload(ds *DaySummary) map[string]any {
 	// (eski betikle yazılan tablolarda başlıksız kalır ama kaymaz).
 	gun := []any{ds.Date, closed, tlNum(ds.Revenue), tlNum(ds.VAT), ds.Paid, tlNum(ds.Avg), ds.Cancelled, tlNum(ds.CancelledTotal),
 		tlNum(pay[PayCash]), tlNum(pay[PayCard]), tlNum(pay[PayTransfer]), feat, featQty, strings.Join(ws, " · "), rng,
-		ds.Discounts, tlNum(ds.DiscountTotal), ds.Comps, tlNum(ds.CompValue)}
+		ds.Discounts, tlNum(ds.DiscountTotal), ds.Comps, tlNum(ds.CompValue), tlNum(pay[PayCredit]), tlNum(ds.CollectedTotal), ds.Split}
 	adisyonlar := [][]any{}
 	for _, r := range ds.Rows {
 		adisyonlar = append(adisyonlar, []any{ds.Date, r.No, r.Table, r.Waiter, clockOf(r.OpenedAt), clockOf(r.ClosedAt),
-			r.StatusText, r.PaymentLabel, tlNum(r.Total), r.PrintCount, r.CancelReason, r.DiscountPercent, tlNum(r.Discount)})
+			r.StatusText, r.PaymentLabel, tlNum(r.Total), r.PrintCount, r.CancelReason, r.DiscountPercent, tlNum(r.Discount), r.Customer})
 	}
 	urunler := [][]any{}
 	for _, p := range ds.Products {

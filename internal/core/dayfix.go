@@ -37,6 +37,11 @@ type ShiftGroup struct {
 	ToClosed   bool    `json:"toClosed"`
 	ToClosedAt string  `json:"toClosedAt,omitempty"` // doğru günün (erken) kapanış saati
 	Nos        []int64 `json:"nos"`
+	// Veresiye tahsilatları: gün erken kapatıldıktan sonra alınan tahsilat da
+	// ertesi güne yazılır; adisyonlarla birlikte doğru güne taşınır.
+	Collections    int     `json:"collections"`
+	CollectedTotal int64   `json:"collectedTotal"`
+	CollectionIDs  []int64 `json:"collectionIds"`
 }
 
 // ShiftPair düzeltilecek bir gruptur.
@@ -49,9 +54,11 @@ func (p ShiftPair) key() string { return p.From + ">" + p.To }
 
 // FixResult düzeltmenin özetidir.
 type FixResult struct {
-	Moved    int      `json:"moved"`
-	Reopened []string `json:"reopened"` // yeniden açılan günler (bugün ve sonrası)
-	Reclosed []string `json:"reclosed"` // özeti yeniden hesaplanıp kapalı kalan geçmiş günler
+	Moved int `json:"moved"`
+	// MovedCollections taşınan veresiye tahsilatı sayısıdır.
+	MovedCollections int      `json:"movedCollections"`
+	Reopened         []string `json:"reopened"` // yeniden açılan günler (bugün ve sonrası)
+	Reclosed         []string `json:"reclosed"` // özeti yeniden hesaplanıp kapalı kalan geçmiş günler
 }
 
 // naturalDate adisyonun açıldığı saate göre iş günüdür.
@@ -143,6 +150,54 @@ func shiftedGroups(q querier, now time.Time, withIgnored bool) ([]ShiftGroup, er
 			g.Total += r.total
 		case active:
 			g.Active++
+		}
+	}
+	// Veresiye tahsilatları: alındığı saate göre iş günü.
+	crows, err := q.Query(`SELECT id, business_date, at, amount FROM credit_payments WHERE business_date >= ? AND cancelled_at IS NULL ORDER BY id`, since)
+	if err != nil {
+		return nil, err
+	}
+	type col struct {
+		id       int64
+		date, at string
+		amount   int64
+	}
+	var cols []col
+	for crows.Next() {
+		var c col
+		if err := crows.Scan(&c.id, &c.date, &c.at, &c.amount); err != nil {
+			crows.Close()
+			return nil, err
+		}
+		cols = append(cols, c)
+	}
+	crows.Close()
+	if err := crows.Err(); err != nil {
+		return nil, err
+	}
+	for _, c := range cols {
+		nat, ok := naturalDate(c.at)
+		if !ok || nat >= c.date {
+			continue
+		}
+		k := c.date + ">" + nat
+		if ignore[k] {
+			continue
+		}
+		g := by[k]
+		if g == nil {
+			g = &ShiftGroup{From: c.date, To: nat, FirstAt: c.at, Nos: []int64{}}
+			by[k] = g
+			order = append(order, k)
+		}
+		g.Collections++
+		g.CollectedTotal += c.amount
+		g.CollectionIDs = append(g.CollectionIDs, c.id)
+		if c.at < g.FirstAt {
+			g.FirstAt = c.at
+		}
+		if c.at > g.LastAt {
+			g.LastAt = c.at
 		}
 	}
 	out := make([]ShiftGroup, 0, len(order))
@@ -343,10 +398,23 @@ func (s *Service) FixShifted(pairs []ShiftPair, reason, pin string) (*FixResult,
 				}
 				audit(tx, now, "is_gunu_degisti", no, map[string]any{"eski": g.From, "yeni": g.To, "sebep": reason})
 			}
+			for _, id := range g.CollectionIDs {
+				if _, err := tx.Exec(`UPDATE credit_payments SET business_date=? WHERE id=? AND business_date=?`, g.To, id, g.From); err != nil {
+					return err
+				}
+			}
 			res.Moved += len(g.Nos)
-			desc = append(desc, fmt.Sprintf("%d adisyon %s → %s", len(g.Nos), dateTRLong(g.From), dateTRLong(g.To)))
+			res.MovedCollections += len(g.CollectionIDs)
+			what := fmt.Sprintf("%d adisyon", len(g.Nos))
+			if len(g.CollectionIDs) > 0 {
+				what += fmt.Sprintf(" ve %d tahsilat", len(g.CollectionIDs))
+				if len(g.Nos) == 0 {
+					what = fmt.Sprintf("%d tahsilat", len(g.CollectionIDs))
+				}
+			}
+			desc = append(desc, fmt.Sprintf("%s %s → %s", what, dateTRLong(g.From), dateTRLong(g.To)))
 		}
-		if res.Moved == 0 {
+		if res.Moved+res.MovedCollections == 0 {
 			return uerr("changed", "Düzeltilecek adisyon kalmadı; ekran yenilendi.")
 		}
 		list := make([]string, 0, len(days))
@@ -385,7 +453,7 @@ func (s *Service) FixShifted(pairs []ShiftPair, reason, pin string) (*FixResult,
 			res.Reclosed = append(res.Reclosed, d)
 			reports = append(reports, ds)
 		}
-		audit(tx, now, "gun_duzeltildi", 0, map[string]any{"sebep": reason, "adisyon": res.Moved, "metin": strings.Join(desc, " · "),
+		audit(tx, now, "gun_duzeltildi", 0, map[string]any{"sebep": reason, "adisyon": res.Moved, "tahsilat": res.MovedCollections, "metin": strings.Join(desc, " · "),
 			"acilan": res.Reopened, "yeniden_hesaplanan": res.Reclosed})
 		return nil
 	})

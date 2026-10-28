@@ -1,9 +1,17 @@
-# Halis Adisyon 2.3.0
+# Halis Adisyon 2.3.1
 
 Halis Erzurum Cağ Kebabı için Windows 11'de çalışan, internetsiz adisyon programı.
 Garson masayı açar, ürünlere tıklar, adisyonu Koddata KPS80 (80 mm termal, ESC/POS)
 yazıcıdan basar; müşteri ödeyince ödeme şeklini (Nakit, Kredi Kartı, Havale) seçip
 masayı kapatır. Yönetici gün sonunu alır, istatistikleri ve Excel raporunu görür.
+
+## 2.3.1'de düzeltilenler (uçtan uca test bulguları)
+
+- Gün erken kapatıldıktan sonra alınan veresiye tahsilatı da "yanlış güne yazılmış" olarak görünür ve gün düzeltmesiyle adisyonlarla birlikte doğru güne taşınır (`ShiftGroup.collections`, `FixResult.movedCollections`); o günün "Kasaya giren"i doğru çıkar.
+- Satış olmayıp yalnız veresiye tahsilatı alınan gün de "gün sonu alınmamış" hatırlatmasına girer.
+- Parçalı ödemede anlaşılamayan tutar (ör. "100,555") kutuda kırmızı işaretlenir ve açıkça söylenir.
+- Pencere düğmeleri (ör. "Hesabı kapat") uzun pencerede de hep görünür; veresiye adı ve parçalı tutar kutularında Enter ana düğmeye basar.
+- Veresiye müşteri listesi her ekran yenilemesinde değil, ödeme, iptal, tahsilat ve müşteri değişikliğinde yeniden hesaplanır (çok veride her tıklama hızlanır).
 
 ## 2.3.0'da gelenler
 
@@ -147,7 +155,7 @@ Yalnızca exe için (Windows'ta da çalışır; simge ve manifest hazır `.syso`
 
 ```sh
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
-  -ldflags "-H windowsgui -s -w -X main.version=2.3.0" -o HalisAdisyon.exe ./cmd/halisadisyon
+  -ldflags "-H windowsgui -s -w -X main.version=2.3.1" -o HalisAdisyon.exe ./cmd/halisadisyon
 ```
 
 `go.mod` içindeki `replace` satırları golang.org/x paketlerini GitHub aynalarından alır. Bunlar yalnızca golang.org'a erişimin kısıtlı olduğu ortamlar için gerekli; normal ortamda silinebilir.

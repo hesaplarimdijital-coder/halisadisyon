@@ -1,5 +1,5 @@
 ; Halis Adisyon · Türkçe kurulum sihirbazı (NSIS 3)
-; makensis -DSTAGE=<klasör> -DVERSION=2.3.0 -DOUTFILE=<çıktı.exe> installer.nsi
+; makensis -DSTAGE=<klasör> -DVERSION=2.3.1 -DOUTFILE=<çıktı.exe> installer.nsi
 ; Yönetici izni istemez: kullanıcının kendi klasörüne (%LOCALAPPDATA%\Programs) kurar.
 
 Unicode true
@@ -13,7 +13,7 @@ RequestExecutionLevel user
 !include "Sections.nsh"
 
 !ifndef VERSION
-  !define VERSION "2.3.0"
+  !define VERSION "2.3.1"
 !endif
 !define APPNAME "Halis Adisyon"
 !define APPEXE "HalisAdisyon.exe"

@@ -356,6 +356,7 @@ func (s *Service) ChangeWaiter(no, waiterID int64) (*State, error) {
 // durur.
 func (s *Service) Cancel(no int64, reason, pin string) (*State, error) {
 	s.mu.Lock()
+	s.creditOK = false // veresiye listesi yenilensin
 	defer s.mu.Unlock()
 	reason, err := required(singleLine(reason), 200, "İptal sebebi")
 	if err != nil {
@@ -440,6 +441,7 @@ func (s *Service) PayParts(no int64, parts []PaymentPart, credit *CreditRef, exp
 		return nil, nil, uerr("invalid", "Ödeme şeklini seçin: Nakit, Kredi Kartı, Havale ya da Veresiye.")
 	}
 	s.mu.Lock()
+	s.creditOK = false // veresiye listesi yenilensin
 	defer s.mu.Unlock()
 	// Fiş basılırken kapatılmaz: basılan ile kapanan tutar aynı olsun.
 	if s.inPrint[no] {

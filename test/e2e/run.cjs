@@ -61,7 +61,8 @@ const checks = [];
 function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail || '' }); if (!ok) console.log('FAIL:', name, detail || ''); }
 
 (async () => {
-  for (let i = 0; i < 100; i++) { try { await fetch(`http://127.0.0.1:${PORT}/`); break; } catch { await sleep(100); } }
+  // Windows ortamında (Wine) bilgisayar yeni açıldıysa program geç açılabilir: 60 sn bekle.
+  for (let i = 0; i < 600; i++) { try { await fetch(`http://127.0.0.1:${PORT}/`); break; } catch { await sleep(100); } }
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   const errors = [];
@@ -534,7 +535,7 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   const app2 = spawn(BIN, ['-browser', '-no-open', '-data', OUT + '/data', '-yedek', OUT + '/yedek', '-port', String(PORT)], { env: ENV });
   app2.stdout.on('data', d => appLog.push(String(d)));
   app2.stderr.on('data', d => appLog.push(String(d)));
-  for (let i = 0; i < 100; i++) { try { await fetch(`http://127.0.0.1:${PORT}/`); break; } catch { await sleep(100); } }
+  for (let i = 0; i < 600; i++) { try { await fetch(`http://127.0.0.1:${PORT}/`); break; } catch { await sleep(100); } }
   await page.goto(`http://127.0.0.1:${PORT}/`);
   await page.waitForSelector('.tiles');
   restarting = false;
@@ -827,6 +828,8 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   await shot('35_odeme_penceresi');
   await page.locator('[data-act="pay-split"]').click();
   await page.waitForSelector('#sp-nakit');
+  await page.fill('#sp-nakit', '100,555');
+  check('hatalı tutar açıkça söylenir', (await page.locator('#split-sum').textContent()).includes('anlaşılamadı') && (await page.getAttribute('#sp-nakit', 'aria-invalid')) === 'true');
   await page.fill('#sp-nakit', '100');
   check('parçalıda kalan gösterilir', (await page.locator('#split-sum').textContent()).includes('65,00') && await page.locator('#split-ok').isDisabled());
   await page.locator('[data-act="split-rest"][data-m="kart"]').click();
@@ -849,7 +852,8 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   check('yeni veresiye müşterisi bildirilir', (await page.locator('#cr-sugg').textContent()).includes('Yeni müşteri'));
   await page.fill('#cr-phone', '0532 111 22 33');
   await shot('37_veresiye_ad');
-  await page.getByRole('button', { name: 'Veresiyeye yaz' }).click();
+  await page.focus('#cr-phone');
+  await page.keyboard.press('Enter'); // Enter ile kaydedilir
   const tCred = await toastText('Masa 6 kapatıldı');
   check('veresiyeye yazıldı', tCred.includes('Veresiye') && tCred.includes('Ahmet Usta'), tCred);
 
@@ -865,6 +869,8 @@ function check(name, ok, detail) { checks.push({ name, ok: !!ok, detail: detail 
   await page.fill('#cr-name', 'AHMET USTA');
   await until(() => (document.querySelector('#cr-sugg') || {}).textContent?.includes('Kayıtlı müşteri'));
   check('kayıtlı müşteri büyük harfle de bulunur', (await page.locator('#cr-sugg').textContent()).includes('borcu 55,00'));
+  const okBox = await page.locator('#split-ok').boundingBox();
+  check('uzun pencerede de kapat düğmesi ekranda', !!okBox && okBox.y + okBox.height <= 768, okBox ? String(Math.round(okBox.y)) : 'yok');
   await page.locator('#split-ok').click();
   const tSplitCred = await toastText('Masa 7 kapatıldı');
   check('nakit + veresiye kapandı', tSplitCred.includes('Veresiye 60,00') && tSplitCred.includes('Ahmet Usta'), tSplitCred);

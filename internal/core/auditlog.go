@@ -511,6 +511,7 @@ func (s *Service) ChangePayment(no int64, method, pin string) (*State, error) {
 // SetPayments ChangePayment'ın parçalı ve veresiye destekli hâlidir.
 func (s *Service) SetPayments(no int64, parts []PaymentPart, credit *CreditRef, pin string) (*State, error) {
 	s.mu.Lock()
+	s.creditOK = false // veresiye listesi yenilensin
 	defer s.mu.Unlock()
 	a, err := loadAdisyon(s.db, no)
 	if err != nil {

@@ -330,6 +330,8 @@ func (s *Service) creditAccount(q querier, id int64) (*CreditDetail, error) {
 // Tahsilat yeni adisyonların yazıldığı açık iş gününe yazılır.
 func (s *Service) CollectCredit(id, amount int64, method, note string) (*CreditDetail, *State, error) {
 	s.mu.Lock()
+	s.creditOK = false // veresiye listesi yenilensin
+	s.daysVer++        // tahsilatlı günler gün sonu hatırlatmasını etkiler
 	defer s.mu.Unlock()
 	if !validCollect(method) {
 		return nil, nil, uerr("invalid", "Tahsilat şeklini seçin: Nakit, Kredi Kartı ya da Havale.")
@@ -380,6 +382,8 @@ func (s *Service) CollectCredit(id, amount int64, method, note string) (*CreditD
 // sebep); günü kapatılmış tahsilat iptal edilmez.
 func (s *Service) CancelCollection(paymentID int64, reason, pin string) (*CreditDetail, *State, error) {
 	s.mu.Lock()
+	s.creditOK = false // veresiye listesi yenilensin
+	s.daysVer++        // tahsilatlı günler gün sonu hatırlatmasını etkiler
 	defer s.mu.Unlock()
 	reason, err := required(singleLine(reason), 200, "Sebep")
 	if err != nil {
@@ -431,6 +435,7 @@ func (s *Service) CancelCollection(paymentID int64, reason, pin string) (*Credit
 // SaveCreditCustomer müşterinin adını, telefonunu ve notunu düzeltir.
 func (s *Service) SaveCreditCustomer(id int64, name, phone, note string) (*CreditDetail, *State, error) {
 	s.mu.Lock()
+	s.creditOK = false // veresiye listesi yenilensin
 	defer s.mu.Unlock()
 	name, err := cleanName(name)
 	if err != nil {

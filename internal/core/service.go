@@ -119,6 +119,11 @@ type Service struct {
 	unclosedFor  string
 	unclosedVer  int
 	unclosedList []string
+	// Veresiye müşteri listesi (ödeme penceresinde öneri) her durumda yeniden
+	// hesaplanmasın: ödeme, iptal, tahsilat ve müşteri değişikliğinde yenilenir.
+	creditOK    bool
+	creditList  []CreditBrief
+	creditTotal int64
 
 	unlockedUntil   time.Time
 	pinFails        int // art arda yanlış şifre (kalıcı)
@@ -675,11 +680,13 @@ func (s *Service) stateLocked() (*State, error) {
 	}
 	st.PaymentMethods = PaymentMethods
 	st.CollectMethods = CollectMethods
-	if list, total, err := creditBriefs(s.db); err == nil {
-		st.CreditCustomers, st.CreditBalance = list, total
-	} else {
-		st.CreditCustomers = []CreditBrief{}
+	if !s.creditOK {
+		if list, total, err := creditBriefs(s.db); err == nil {
+			s.creditList, s.creditTotal, s.creditOK = list, total, true
+		}
 	}
+	st.CreditCustomers = append([]CreditBrief{}, s.creditList...)
+	st.CreditBalance = s.creditTotal
 	st.ClockDate = businessDate(now)
 	if day, err := openBusinessDay(s.db, now); err == nil {
 		st.BusinessDate = day

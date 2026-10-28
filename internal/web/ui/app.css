@@ -489,3 +489,8 @@ ul.plain li svg { flex: none; margin-top: 3px; }
 /* Üst çubuk: altı menü düğmesi dar ekranda tek satıra sığsın */
 @media (max-width: 1440px) { .nav { gap: 6px; } .nav-btn { padding: 0 12px; gap: 6px; } .nav-btn.quiet span { display: none; } }
 @media (max-width: 1180px) { .nav-btn { padding: 0 10px; font-size: 18px; } }
+
+/* Pencere düğmeleri uzun pencerede de hep görünür (ör. 1024×768'de parçalı ödeme + veresiye) */
+.modal-actions { position: sticky; bottom: 0; background: var(--surface); z-index: 1; }
+.modal { scroll-padding-bottom: 110px; }
+.input[aria-invalid="true"] { border-color: var(--bad); box-shadow: 0 0 0 2px var(--bad-tint); }

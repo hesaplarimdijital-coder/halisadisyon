@@ -794,16 +794,17 @@ function reopenDayFlow() {
 }
 // Kaymış adisyonlar: açıldığı günden sonraki bir güne yazılmış adisyon grupları.
 function shiftGroupText(g) {
-  return '<strong>' + esc(dateLong(g.to)) + '</strong> günü açılan <strong>' + g.count + ' adisyon</strong> ' + esc(dateLong(g.from)) + ' gününe yazılmış';
+  const what = [g.count ? g.count + ' adisyon' : '', g.collections ? g.collections + ' veresiye tahsilatı' : ''].filter(Boolean).join(' ve ');
+  return '<strong>' + esc(dateLong(g.to)) + '</strong> günü ' + (g.count ? 'açılan' : 'alınan') + ' <strong>' + what + '</strong> ' + esc(dateLong(g.from)) + ' gününe yazılmış';
 }
 function shiftGroupSub(g) {
-  return 'Saat ' + hm(g.firstAt) + (g.count > 1 ? '–' + hm(g.lastAt) : '') + ' · ' + g.paid + ' ödenen, ' + TL(g.total) + (g.active ? ' · ' + g.active + ' masa açık' : '') + (g.toClosed && g.toClosedAt ? ' · ' + esc(dateLong(g.to)) + ' ' + esc(stampText(g.toClosedAt)) + '’de kapatılmış' : '');
+  return 'Saat ' + hm(g.firstAt) + (g.count + (g.collections || 0) > 1 ? '–' + hm(g.lastAt) : '') + (g.count ? ' · ' + g.paid + ' ödenen, ' + TL(g.total) : '') + (g.collections ? ' · tahsilat ' + TL(g.collectedTotal) : '') + (g.active ? ' · ' + g.active + ' masa açık' : '') + (g.toClosed && g.toClosedAt ? ' · ' + esc(dateLong(g.to)) + ' ' + esc(stampText(g.toClosedAt)) + '’de kapatılmış' : '');
 }
 function shiftedHTML(list) {
   if (!list.length) return '';
-  const n = list.reduce((a, g) => a + g.count, 0);
+  const n = list.reduce((a, g) => a + g.count, 0); const nc = list.reduce((a, g) => a + (g.collections || 0), 0);
   return '<section class="card pad stack shift-card" id="shift-card"><div class="card-head"><h2>' + ic('alert', 24, 2.2) + ' Yanlış güne yazılmış adisyonlar</h2><button type="button" class="btn btn-primary" data-act="shift-fix">' + ic('undo') + 'Düzelt</button></div>' +
-    '<p class="muted">Gün sonu gün bitmeden alınınca o günün sonraki adisyonları ertesi güne yazılır. Toplam ' + n + ' adisyon açıldığı günden farklı bir güne yazılmış.</p>' +
+    '<p class="muted">Gün sonu gün bitmeden alınınca o günün sonraki adisyonları ertesi güne yazılır. Toplam ' + [n ? n + ' adisyon' : '', nc ? nc + ' veresiye tahsilatı' : ''].filter(Boolean).join(' ve ') + ' asıl gününden farklı bir güne yazılmış.</p>' +
     '<ul class="shift-list">' + list.map(g => '<li><span>' + shiftGroupText(g) + '<br><span class="muted small">' + shiftGroupSub(g) + '</span></span><button type="button" class="linkish" data-act="shift-ignore" data-from="' + esc(g.from) + '" data-to="' + esc(g.to) + '">Böyle kalsın</button></li>').join('') + '</ul></section>';
 }
 function shiftFixFlow() {
@@ -836,7 +837,7 @@ function shiftFixFlow() {
       const r = await act('fixShifted', { pairs, reason });
       if (!r) return;
       const x = r.data;
-      toast(x.moved + ' adisyon doğru güne taşındı' + (x.reopened.length ? '; ' + x.reopened.map(dateLong).join(', ') + ' yeniden açıldı' : '') + '.', 'good');
+      toast([x.moved ? x.moved + ' adisyon' : '', x.movedCollections ? x.movedCollections + ' tahsilat' : ''].filter(Boolean).join(' ve ') + ' doğru güne taşındı' + (x.reopened.length ? '; ' + x.reopened.map(dateLong).join(', ') + ' yeniden açıldı' : '') + '.', 'good');
       await loadDay(pairs[0].to);
     }) }]
   });
@@ -1944,27 +1945,29 @@ function readCredit() {
   return exact ? { id: exact.id, name: exact.name } : { name, phone: val('cr-phone').trim() };
 }
 function splitRead() {
-  const parts = []; let sum = 0; let bad = '';
+  const parts = []; let sum = 0; let bad = ''; const badIds = [];
   (S.paymentMethods || []).forEach(m => {
     const raw = val('sp-' + m.id).trim(); if (!raw) return;
     const k = parsePrice(raw);
-    if (!(k >= 0)) { bad = m.label + ' tutarı anlaşılamadı.'; return; }
+    if (!(k >= 0)) { bad = bad || m.label + ' tutarı anlaşılamadı; örnek: 250 ya da 250,50'; badIds.push('sp-' + m.id); return; }
     if (k > 0) { parts.push({ method: m.id, amount: k }); sum += k; }
   });
   const total = modal && modal.payCtx ? modal.payCtx.total : 0;
   const rest = total - sum;
-  if (bad) return { ok: false, msg: bad, sum, rest, parts };
+  if (bad) return { ok: false, bad: true, badIds, msg: bad, sum, rest, parts };
   if (rest !== 0) return { ok: false, msg: rest > 0 ? TL(rest) + ' eksik.' : TL(-rest) + ' fazla.', sum, rest, parts };
   if (parts.length < 2) return { ok: false, msg: 'Parçalı ödemede en az iki ödeme şekline tutar yazın.', sum, rest, parts };
   return { ok: true, sum, rest, parts };
 }
 function splitUpdate() {
   const sp = splitRead(); const box = document.getElementById('split-sum'); if (!box) return;
-  box.className = 'split-sum' + (sp.ok ? ' good' : sp.rest < 0 ? ' bad' : '');
-  box.innerHTML = '<span>Girilen <strong>' + TL(sp.sum) + '</strong></span><span>' + (sp.rest > 0 ? 'Kalan <strong>' + TL(sp.rest) + '</strong>' : sp.rest < 0 ? 'Fazla <strong>' + TL(-sp.rest) + '</strong>' : (sp.ok ? ic('check', 20, 2.6) + ' <strong>Tutar tamam</strong>' : '<strong>' + esc(sp.msg) + '</strong>')) + '</span>';
+  (S.paymentMethods || []).forEach(m => { const el = document.getElementById('sp-' + m.id); if (el) el.setAttribute('aria-invalid', String((sp.badIds || []).includes('sp-' + m.id))); });
+  box.className = 'split-sum' + (sp.ok ? ' good' : (sp.bad || sp.rest < 0) ? ' bad' : '');
+  box.innerHTML = sp.bad ? '<span>' + ic('alert', 20, 2.4) + ' <strong>' + esc(sp.msg) + '</strong></span>'
+    : '<span>Girilen <strong>' + TL(sp.sum) + '</strong></span><span>' + (sp.rest > 0 ? 'Kalan <strong>' + TL(sp.rest) + '</strong>' : sp.rest < 0 ? 'Fazla <strong>' + TL(-sp.rest) + '</strong>' : (sp.ok ? ic('check', 20, 2.6) + ' <strong>Tutar tamam</strong>' : '<strong>' + esc(sp.msg) + '</strong>')) + '</span>';
   const ok = document.getElementById('split-ok'); if (ok) ok.disabled = !sp.ok;
   const cr = document.getElementById('split-credit');
-  if (cr) { const need = sp.parts.some(p => p.method === 'veresiye'); if (cr.hidden === need) { cr.hidden = !need; if (need) creditSuggest(); } }
+  if (cr) { const need = sp.parts.some(p => p.method === 'veresiye'); if (cr.hidden === need) { cr.hidden = !need; if (need) { creditSuggest(); cr.scrollIntoView({ block: 'nearest' }); } } }
 }
 async function doPay(t, no, total, payload) {
   const a = activeFor(t);
@@ -2315,6 +2318,13 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'Escape') { e.preventDefault(); closeModal(); return; }
+  // Veresiye adı ya da parçalı ödeme tutarı yazarken Enter: pencerenin ana düğmesi.
+  if (e.key === 'Enter' && (modal.kind === 'pay-credit' || modal.kind === 'pay-split') && e.target && e.target.tagName === 'INPUT') {
+    const b = document.querySelector('#modal-root .modal-actions .btn-primary');
+    e.preventDefault();
+    if (b && !b.disabled) b.click(); else if (modal.kind === 'pay-split') { const sp = splitRead(); toast(sp.msg, 'bad'); }
+    return;
+  }
   if ((modal.kind === 'pay' || modal.kind === 'collect') && /^[1-9]$/.test(e.key) && !(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))) {
     const b = document.querySelectorAll('#modal-root .pay-btn')[Number(e.key) - 1];
     if (b && !b.disabled) { e.preventDefault(); b.click(); }

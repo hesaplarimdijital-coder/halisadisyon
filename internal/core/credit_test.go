@@ -233,3 +233,75 @@ func TestCredit(t *testing.T) {
 		}
 	}
 }
+
+// Gün öğlen kapatıldıktan sonra alınan veresiye tahsilatı ertesi güne yazılır;
+// gün düzeltmesi tahsilatı da doğru güne taşır (o günün kasası doğru çıkar).
+func TestShiftedCollection(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	e.at(19, 10, 0)
+	n := e.add(1, "Cağ")
+	e.payParts(n, &CreditRef{Name: "Veli"}, PaymentPart{Method: PayCredit})
+	e.at(19, 12, 0)
+	e.closeDay("2026-10-19")
+	e.at(19, 15, 0)
+	cl, _ := e.svc.Credits()
+	if _, _, err := e.svc.CollectCredit(cl.Customers[0].ID, 10000, PayCash, ""); err != nil {
+		t.Fatal(err)
+	}
+	ds, _ := e.svc.DaySummary("")
+	if len(ds.Shifted) != 1 || ds.Shifted[0].Collections != 1 || ds.Shifted[0].Count != 0 || ds.Shifted[0].CollectedTotal != 10000 {
+		t.Fatalf("tahsilat kayması görünmüyor: %+v", ds.Shifted)
+	}
+	n2 := e.add(2, "Ayran")
+	e.pay(n2, PayCash)
+	ds, _ = e.svc.DaySummary("")
+	if len(ds.Shifted) != 1 || ds.Shifted[0].Count != 1 || ds.Shifted[0].Collections != 1 {
+		t.Fatalf("adisyon ve tahsilat aynı grupta olmalı: %+v", ds.Shifted)
+	}
+	res, _, err := e.svc.FixShifted([]ShiftPair{{ds.Shifted[0].From, ds.Shifted[0].To}}, "öğlen kapatıldı", "2468")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Moved != 1 || res.MovedCollections != 1 {
+		t.Fatalf("sonuç: %+v", res)
+	}
+	d19, _ := e.svc.DaySummary("2026-10-19")
+	d20, _ := e.svc.DaySummary("2026-10-20")
+	if d19.CollectedTotal != 10000 || d19.Drawer[0].Total != 15000 || d20.CollectedTotal != 0 {
+		t.Fatalf("19 Ekim tahsilat %d kasa nakit %d · 20 Ekim tahsilat %d", d19.CollectedTotal, d19.Drawer[0].Total, d20.CollectedTotal)
+	}
+}
+
+// Satış olmayan ama tahsilat alınan gün de "gün sonu alınmamış" hatırlatmasına
+// girer (tahsilat gün sonu raporuna o gün kapatılınca girer). Veresiye listesi
+// durum içinde önbellekte tutulur, ödeme ve tahsilatta yenilenir.
+func TestCollectionOnlyDayAndCache(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	e.at(19, 12, 0)
+	n := e.add(1, "Cağ")
+	e.payParts(n, &CreditRef{Name: "Veli"}, PaymentPart{Method: PayCredit})
+	if st := e.state(); st.CreditBalance != 34000 {
+		t.Fatalf("ödemeden sonra alacak: %d", st.CreditBalance)
+	}
+	e.at(19, 23, 0)
+	e.closeDay("2026-10-19")
+	e.at(20, 12, 0) // lokanta kapalı; yalnız tahsilat
+	cl, _ := e.svc.Credits()
+	_, st, err := e.svc.CollectCredit(cl.Customers[0].ID, 34000, PayCash, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.CreditBalance != 0 || st.CreditCustomers[0].Balance != 0 {
+		t.Fatalf("tahsilattan sonra durum eski kaldı: %d", st.CreditBalance)
+	}
+	e.at(21, 12, 0)
+	if st = e.state(); len(st.UnclosedDays) != 1 || st.UnclosedDays[0] != "2026-10-20" {
+		t.Fatalf("yalnız tahsilat olan gün hatırlatılmadı: %v", st.UnclosedDays)
+	}
+	e.closeDay("2026-10-20")
+	if st = e.state(); len(st.UnclosedDays) != 0 {
+		t.Fatalf("kapatılan gün hâlâ listede: %v", st.UnclosedDays)
+	}
+}

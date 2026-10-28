@@ -70,6 +70,7 @@ func (s *Service) SetDiscount(no int64, percent int, pin string) (*State, error)
 // seçilmelidir.
 func (s *Service) Reopen(no int64, table int, reason, pin string) (*State, int, error) {
 	s.mu.Lock()
+	s.creditOK = false // veresiye listesi yenilensin
 	defer s.mu.Unlock()
 	reason, err := required(singleLine(reason), 200, "Sebep")
 	if err != nil {

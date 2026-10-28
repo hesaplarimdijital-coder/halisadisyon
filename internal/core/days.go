@@ -65,9 +65,12 @@ func openBusinessDay(q querier, now time.Time) (string, error) {
 
 // unclosedDays bugünden önceki, adisyonu olan ama gün sonu alınmamış günlerdir (yeniden eskiye).
 func unclosedDays(q querier, before string) ([]string, error) {
-	rows, err := q.Query(`SELECT DISTINCT business_date FROM adisyons
-		WHERE business_date < ? AND business_date NOT IN (SELECT date FROM business_days WHERE closed_at IS NOT NULL)
-		ORDER BY business_date DESC LIMIT 14`, before)
+	// Yalnız veresiye tahsilatı olan gün de (satış yokken alınan borç) kapatılmalı:
+	// tahsilat gün sonu raporuna o gün kapatılınca girer.
+	rows, err := q.Query(`SELECT DISTINCT d FROM (SELECT business_date d FROM adisyons
+			UNION SELECT business_date FROM credit_payments WHERE cancelled_at IS NULL)
+		WHERE d < ? AND d NOT IN (SELECT date FROM business_days WHERE closed_at IS NOT NULL)
+		ORDER BY d DESC LIMIT 14`, before)
 	if err != nil {
 		return nil, err
 	}

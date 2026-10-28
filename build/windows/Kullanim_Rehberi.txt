@@ -1,4 +1,4 @@
-HALİS ADİSYON 2.3.0 · KISA KULLANIM REHBERİ
+HALİS ADİSYON 2.3.1 · KISA KULLANIM REHBERİ
 ============================================
 
 1. İLK AÇILIŞ
@@ -99,7 +99,8 @@ Ayarlar > Fiş bilgileri bölümünde sağda "Canlı önizleme" vardır: yazdık
 PARÇALI ÖDEME: Müşteri hesabın bir kısmını nakit, bir kısmını kartla öderse
 "Hesap Ödendi" > "Parçalı ödeme". Her ödeme şeklinin yanına alınan tutarı
 yazın (ör. Nakit 500). Son satırda "Kalanı"na basınca kalan tutar o satıra
-yazılır. Altta "Kalan" sıfır olup "Tutar tamam" yazınca "Hesabı kapat".
+yazılır. Tutar yanlış yazılırsa kutu kırmızı olur ve altta nedeni yazar.
+Altta "Kalan" sıfır olup "Tutar tamam" yazınca "Hesabı kapat" (ya da Enter).
 Gün sonunda her parça kendi ödeme şekline sayılır.
 
 VERESİYE: "Hesap Ödendi" > "Veresiye" (4). Müşterinin adını yazın; daha önce
@@ -165,7 +166,8 @@ hangi gün açılan kaç adisyonun hangi güne yazıldığını gösterir.
 Adisyonlar açıldıkları güne taşınır; numara, saat ve tutar değişmez.
 Geçmiş günlerin özeti yeniden hesaplanır ve kapalı kalır (gün sonu fişinde
 "Düzeltildi" yazar; WhatsApp ve Sheets'e düzeltilmiş hali yeniden gider).
-Bugün yanlışlıkla kapatılmışsa bugün yeniden açılır. Düzeltmeden önce ayrı
+Gün kapatıldıktan sonra alınan veresiye tahsilatları da aynı kutuda görünür
+ve doğru güne taşınır. Bugün yanlışlıkla kapatılmışsa bugün yeniden açılır. Düzeltmeden önce ayrı
 bir yedek alınır. Gece gün sonu alındıktan sonra gelen müşteri bilerek ertesi
 güne yazıldıysa o satırda "Böyle kalsın" deyin.
 "İşlem kaydı" düğmesi programda yapılan her işlemi (baskı, ödeme, iptal, masa
